@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import Tesseract from "tesseract.js";
 
 const MFY_LIST = [
   "O'zbekiston MFY","Namozgoh MFY","Mustaqillik MFY","Taraqqiyot MFY","Teraktashi MFY","Poloson MFY",
@@ -137,14 +138,23 @@ function Hodim({ user, records, setRecords, onLogout }) {
     if (!imgData) { setJshshir(""); return; }
     setScanning(true);
     try {
-      const res = await fetch("/api/scan", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ imageData: imgData.split(",")[1] })
-      });
-      const data = await res.json();
-      if (data.jshshir) { setJshshir(data.jshshir); show("✅ JShShIR avtomatik topildi!"); }
-      else show("⚠️ JShShIR topilmadi, qo'lda kiriting", "error");
+      const result = await Tesseract.recognize(imgData, "eng");
+      const text = result.data.text.replace(/\s/g, "");
+      // 14 raqamli JSHSHIR ni qidirish
+      const match = text.match(/\d{14}/);
+      if (match) {
+        setJshshir(match[0]);
+        show("✅ JShShIR avtomatik topildi!");
+      } else {
+        // Barcha raqamlarni yig'ib, 14 ta bo'lsa ishlatish
+        const digits = text.replace(/\D/g, "");
+        if (digits.length >= 14) {
+          setJshshir(digits.slice(0, 14));
+          show("✅ JShShIR avtomatik topildi!");
+        } else {
+          show("⚠️ JShShIR topilmadi, qo'lda kiriting", "error");
+        }
+      }
     } catch { show("⚠️ Skaner ishlamadi, qo'lda kiriting", "error"); }
     setScanning(false);
   };
