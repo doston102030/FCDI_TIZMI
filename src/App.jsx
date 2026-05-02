@@ -133,28 +133,44 @@ function Hodim({ user, records, setRecords, onLogout }) {
   const myToday = records.filter(r => r.hodim === user.username && fmtDate(new Date(r.timestamp)) === todayStr()).length;
   const show = (msg, type = "success") => { setToast({ msg, type }); setTimeout(() => setToast(null), 3500); };
 
+  const cropTop = (imgData, ratio = 0.62) => new Promise(resolve => {
+    const img = new Image();
+    img.onload = () => {
+      const c = document.createElement("canvas");
+      c.width = img.width; c.height = Math.floor(img.height * ratio);
+      c.getContext("2d").drawImage(img, 0, 0);
+      resolve(c.toDataURL("image/jpeg", 0.9));
+    };
+    img.src = imgData;
+  });
+
   const scanPassport = async (imgData) => {
     setPassport(imgData);
     if (!imgData) { setJshshir(""); return; }
     setScanning(true);
     try {
-      const result = await Tesseract.recognize(imgData, "eng");
-      const text = result.data.text.replace(/\s/g, "");
-      // 14 raqamli JSHSHIR ni qidirish
-      const match = text.match(/\d{14}/);
-      if (match) {
-        setJshshir(match[0]);
+      // MRZ (pastki qator) dan qochish uchun rasmning yuqori 62% ni olamiz
+      const cropped = await cropTop(imgData, 0.62);
+      const result = await Tesseract.recognize(cropped, "eng");
+      const text = result.data.text;
+
+      // "Personal number" yoki "Shaxsiy raqam" yonidagi 14 raqamni topish
+      const afterKeyword = text.match(/(?:personal\s*number|shaxsiy\s*raqam)[^\d]*(\d{14})/i);
+      if (afterKeyword) {
+        setJshshir(afterKeyword[1]);
         show("✅ JShShIR avtomatik topildi!");
-      } else {
-        // Barcha raqamlarni yig'ib, 14 ta bo'lsa ishlatish
-        const digits = text.replace(/\D/g, "");
-        if (digits.length >= 14) {
-          setJshshir(digits.slice(0, 14));
-          show("✅ JShShIR avtomatik topildi!");
-        } else {
-          show("⚠️ JShShIR topilmadi, qo'lda kiriting", "error");
-        }
+        setScanning(false); return;
       }
+
+      // Butun matndan 1-6 bilan boshlangan 14 raqamni qidirish (JSHSHIR formati)
+      const allMatches = [...text.replace(/\s/g, "").matchAll(/[1-6]\d{13}/g)];
+      if (allMatches.length > 0) {
+        setJshshir(allMatches[0][0]);
+        show("✅ JShShIR avtomatik topildi!");
+        setScanning(false); return;
+      }
+
+      show("⚠️ JShShIR topilmadi, qo'lda kiriting", "error");
     } catch { show("⚠️ Skaner ishlamadi, qo'lda kiriting", "error"); }
     setScanning(false);
   };
