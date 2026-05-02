@@ -137,25 +137,13 @@ function Hodim({ user, records, setRecords, onLogout }) {
     if (!imgData) { setJshshir(""); return; }
     setScanning(true);
     try {
-      const res = await fetch("https://api.anthropic.com/v1/messages", {
+      const res = await fetch("/api/scan", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: "claude-sonnet-4-20250514",
-          max_tokens: 1000,
-          messages: [{
-            role: "user",
-            content: [
-              { type: "image", source: { type: "base64", media_type: "image/jpeg", data: imgData.split(",")[1] } },
-              { type: "text", text: "Bu O'zbekiston pasporti yoki ID karta rasmi. Faqat JSHSHIR (PINFL) raqamini top — bu 14 xonali raqam. Agar topilsa FAQAT 14 ta raqamni yoz. Agar topilmasa faqat TOPILMADI deb yoz." }
-            ]
-          }]
-        })
+        body: JSON.stringify({ imageData: imgData.split(",")[1] })
       });
       const data = await res.json();
-      const text = data.content?.map(c => c.text || "").join("") || "";
-      const match = text.match(/\d{14}/);
-      if (match) { setJshshir(match[0]); show("✅ JShShIR avtomatik topildi!"); }
+      if (data.jshshir) { setJshshir(data.jshshir); show("✅ JShShIR avtomatik topildi!"); }
       else show("⚠️ JShShIR topilmadi, qo'lda kiriting", "error");
     } catch { show("⚠️ Skaner ishlamadi, qo'lda kiriting", "error"); }
     setScanning(false);
