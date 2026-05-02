@@ -78,6 +78,95 @@ function Camera({ onCapture, label, icon }) {
   );
 }
 
+// ─── Pasport avtoskaner ───
+function PassportScanner({ onFound }) {
+  const vRef = useRef(null);
+  const canvasRef = useRef(null);
+  const streamRef = useRef(null);
+  const busyRef = useRef(false);
+  const foundRef = useRef(false);
+  const [status, setStatus] = useState("📷 Kamera yoqilmoqda...");
+  const [active, setActive] = useState(false);
+
+  const cropTop = (canvas) => {
+    const c = document.createElement("canvas");
+    c.width = canvas.width;
+    c.height = Math.floor(canvas.height * 0.62);
+    c.getContext("2d").drawImage(canvas, 0, 0);
+    return c.toDataURL("image/jpeg", 0.88);
+  };
+
+  const tryFind = (text) => {
+    const kw = text.match(/(?:personal\s*number|shaxsiy\s*raqam)[^\d]*(\d{14})/i);
+    if (kw) return kw[1];
+    const m = [...text.replace(/\s/g, "").matchAll(/[1-6]\d{13}/g)];
+    return m.length > 0 ? m[0][0] : null;
+  };
+
+  const scanFrame = async () => {
+    if (busyRef.current || foundRef.current) return;
+    const v = vRef.current, c = canvasRef.current;
+    if (!v || !c || v.readyState < 2) return;
+    busyRef.current = true;
+    c.width = v.videoWidth; c.height = v.videoHeight;
+    c.getContext("2d").drawImage(v, 0, 0);
+    const photoUrl = c.toDataURL("image/jpeg", 0.7);
+    const cropped = cropTop(c);
+    try {
+      const result = await Tesseract.recognize(cropped, "eng");
+      const jshshir = tryFind(result.data.text);
+      if (jshshir) {
+        foundRef.current = true;
+        streamRef.current?.getTracks().forEach(t => t.stop());
+        onFound(jshshir, photoUrl);
+        return;
+      }
+      setStatus("📄 Pasportni yaqinroq tutib turing...");
+    } catch {}
+    busyRef.current = false;
+  };
+
+  useEffect(() => {
+    navigator.mediaDevices.getUserMedia({
+      video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 } }
+    }).then(s => {
+      streamRef.current = s;
+      setTimeout(() => { if (vRef.current) vRef.current.srcObject = s; }, 100);
+      setActive(true);
+      setStatus("📄 Pasportni kameraga tutib turing...");
+    }).catch(() => setStatus("❌ Kamera ruxsati berilmadi!"));
+    return () => streamRef.current?.getTracks().forEach(t => t.stop());
+  }, []);
+
+  useEffect(() => {
+    if (!active) return;
+    const id = setInterval(scanFrame, 2500);
+    return () => clearInterval(id);
+  }, [active]);
+
+  return (
+    <div>
+      <div style={{ position: "relative" }}>
+        <video ref={vRef} autoPlay playsInline muted style={{ width: "100%", borderRadius: 14, background: "#000" }} />
+        <div style={{ position: "absolute", inset: 0, borderRadius: 14, pointerEvents: "none" }}>
+          {[[{top:12,left:12},{borderTop:"3px solid #6366f1",borderLeft:"3px solid #6366f1"}],
+            [{top:12,right:12},{borderTop:"3px solid #6366f1",borderRight:"3px solid #6366f1"}],
+            [{bottom:12,left:12},{borderBottom:"3px solid #6366f1",borderLeft:"3px solid #6366f1"}],
+            [{bottom:12,right:12},{borderBottom:"3px solid #6366f1",borderRight:"3px solid #6366f1"}]
+          ].map(([pos, border], i) => (
+            <div key={i} style={{ position: "absolute", width: 28, height: 28, borderRadius: 3, ...pos, ...border }} />
+          ))}
+        </div>
+      </div>
+      <canvas ref={canvasRef} style={{ display: "none" }} />
+      <div style={{ marginTop: 10, padding: "12px 16px", background: "rgba(99,102,241,0.08)", border: "1.5px solid rgba(99,102,241,0.15)", borderRadius: 12, display: "flex", alignItems: "center", gap: 10 }}>
+        <div style={{ width: 16, height: 16, border: "2.5px solid #6366f1", borderTopColor: "transparent", borderRadius: "50%", animation: "spin 0.8s linear infinite", flexShrink: 0 }} />
+        <span style={{ color: "#818cf8", fontSize: 13, fontWeight: 600 }}>{status}</span>
+      </div>
+    </div>
+  );
+}
+
 // ─── Login ───
 function Login({ onLogin }) {
   const [u, setU] = useState(""), [p, setP] = useState(""), [err, setErr] = useState("");
@@ -121,7 +210,6 @@ function Hodim({ user, records, setRecords, onLogout }) {
   const [sending, setSending] = useState(false);
   const [search, setSearch] = useState("");
   const [toast, setToast] = useState(null);
-  const [scanning, setScanning] = useState(false);
 
   useEffect(() => {
     navigator.geolocation?.getCurrentPosition(
@@ -133,46 +221,10 @@ function Hodim({ user, records, setRecords, onLogout }) {
   const myToday = records.filter(r => r.hodim === user.username && fmtDate(new Date(r.timestamp)) === todayStr()).length;
   const show = (msg, type = "success") => { setToast({ msg, type }); setTimeout(() => setToast(null), 3500); };
 
-  const cropTop = (imgData, ratio = 0.62) => new Promise(resolve => {
-    const img = new Image();
-    img.onload = () => {
-      const c = document.createElement("canvas");
-      c.width = img.width; c.height = Math.floor(img.height * ratio);
-      c.getContext("2d").drawImage(img, 0, 0);
-      resolve(c.toDataURL("image/jpeg", 0.9));
-    };
-    img.src = imgData;
-  });
-
-  const scanPassport = async (imgData) => {
-    setPassport(imgData);
-    if (!imgData) { setJshshir(""); return; }
-    setScanning(true);
-    try {
-      // MRZ (pastki qator) dan qochish uchun rasmning yuqori 62% ni olamiz
-      const cropped = await cropTop(imgData, 0.62);
-      const result = await Tesseract.recognize(cropped, "eng");
-      const text = result.data.text;
-
-      // "Personal number" yoki "Shaxsiy raqam" yonidagi 14 raqamni topish
-      const afterKeyword = text.match(/(?:personal\s*number|shaxsiy\s*raqam)[^\d]*(\d{14})/i);
-      if (afterKeyword) {
-        setJshshir(afterKeyword[1]);
-        show("✅ JShShIR avtomatik topildi!");
-        setScanning(false); return;
-      }
-
-      // Butun matndan 1-6 bilan boshlangan 14 raqamni qidirish (JSHSHIR formati)
-      const allMatches = [...text.replace(/\s/g, "").matchAll(/[1-6]\d{13}/g)];
-      if (allMatches.length > 0) {
-        setJshshir(allMatches[0][0]);
-        show("✅ JShShIR avtomatik topildi!");
-        setScanning(false); return;
-      }
-
-      show("⚠️ JShShIR topilmadi, qo'lda kiriting", "error");
-    } catch { show("⚠️ Skaner ishlamadi, qo'lda kiriting", "error"); }
-    setScanning(false);
+  const onPassportFound = (jshshir, photoUrl) => {
+    setJshshir(jshshir);
+    setPassport(photoUrl);
+    show("✅ JShShIR avtomatik topildi!");
   };
 
   const submit = () => {
@@ -266,16 +318,18 @@ function Hodim({ user, records, setRecords, onLogout }) {
               <Camera onCapture={setFace} label="Yuz rasmini olish" icon="🤳" />
             </div>
 
-            {/* Pasport skaner */}
+            {/* Pasport avtoskaner */}
             <div>
-              <label style={{ color: "#94a3b8", fontSize: 13, fontWeight: 600, display: "block", marginBottom: 4 }}>📄 Pasport rasmi → JShShIR avtomatik o'qiladi</label>
-              <p style={{ color: "#475569", fontSize: 11, margin: "0 0 10px" }}>Pasportni rasmga oling, tizim JShShIR ni avtomatik topadi</p>
-              <Camera onCapture={scanPassport} label="Pasportni skanerlash" icon="📄" />
-              {scanning && (
-                <div style={{ marginTop: 12, padding: "13px 18px", background: "rgba(99,102,241,0.08)", borderRadius: 12, border: "1.5px solid rgba(99,102,241,0.15)", display: "flex", alignItems: "center", gap: 12 }}>
-                  <div style={{ width: 20, height: 20, border: "3px solid #6366f1", borderTopColor: "transparent", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
-                  <span style={{ color: "#818cf8", fontSize: 13, fontWeight: 600 }}>JShShIR skanerlanmoqda...</span>
+              <label style={{ color: "#94a3b8", fontSize: 13, fontWeight: 600, display: "block", marginBottom: 4 }}>📄 Pasport skaneri — avtomatik</label>
+              <p style={{ color: "#475569", fontSize: 11, margin: "0 0 10px" }}>Pasportni kameraga tutsangiz JShShIR o'zi topiladi</p>
+              {passport ? (
+                <div style={{ position: "relative" }}>
+                  <img src={passport} alt="pasport" style={{ width: "100%", borderRadius: 14, border: "2.5px solid #10b981" }} />
+                  <div style={{ position: "absolute", top: 10, right: 10, background: "linear-gradient(135deg,#10b981,#059669)", color: "#fff", borderRadius: 20, padding: "5px 14px", fontSize: 12, fontWeight: 700 }}>✓ Tayyor</div>
+                  <button onClick={() => { setPassport(null); setJshshir(""); }} style={{ marginTop: 10, width: "100%", padding: 11, background: "rgba(239,68,68,0.08)", color: "#ef4444", border: "1.5px solid rgba(239,68,68,0.3)", borderRadius: 12, fontWeight: 600, fontSize: 14, cursor: "pointer" }}>🔄 Qayta skanerlash</button>
                 </div>
+              ) : (
+                <PassportScanner onFound={onPassportFound} />
               )}
             </div>
 
