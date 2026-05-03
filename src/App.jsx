@@ -366,12 +366,12 @@ function PassportScanner({ onFound }) {
       <canvas ref={cRef} style={{display:"none"}}/>
 
       {/* Status */}
-      <div style={{marginTop:8,padding:"10px 14px",background:"rgba(99,102,241,0.07)",
-        border:"1px solid rgba(99,102,241,0.15)",borderRadius:12,
+      <div style={{marginTop:8,padding:"10px 14px",background:"rgba(22,163,74,0.07)",
+        border:"1px solid rgba(22,163,74,0.18)",borderRadius:12,
         display:"flex",alignItems:"center",gap:10}}>
-        <div style={{width:13,height:13,border:"2.5px solid #6366f1",borderTopColor:"transparent",
+        <div style={{width:13,height:13,border:"2.5px solid #16a34a",borderTopColor:"transparent",
           borderRadius:"50%",animation:"spin .8s linear infinite",flexShrink:0}}/>
-        <span style={{color:"#94a3b8",fontSize:12,fontWeight:600}}>{status}</span>
+        <span style={{color:"#15803d",fontSize:12,fontWeight:600}}>{status}</span>
       </div>
 
       <style>{`
@@ -463,28 +463,28 @@ const btnStyle=(color,bg,full=false,sm=false)=>({
   boxShadow:`0 4px 12px ${color}33`
 });
 
-// ─── Dizayn konstantalar ──────────────────────────────────────────────────────
+// ─── Dizayn konstantalar — Oq + Yashil ───────────────────────────────────────
 const C = {
-  bg:      "#03080f",
-  card:    "#071120",
-  card2:   "#0a1828",
-  border:  "rgba(14,90,200,0.18)",
-  blue:    "#1a6cf5",
-  blue2:   "#3d8bff",
-  gold:    "#d4951a",
-  gold2:   "#f0b429",
-  green:   "#0db96d",
-  red:     "#e53e3e",
-  text:    "#ddeeff",
-  muted:   "#4a6a8a",
-  dim:     "#1a2d40",
+  bg:      "#f4faf5",
+  card:    "#ffffff",
+  card2:   "#f0f7f1",
+  border:  "rgba(22,163,74,0.15)",
+  blue:    "#16a34a",
+  blue2:   "#15803d",
+  gold:    "#ca8a04",
+  gold2:   "#d97706",
+  green:   "#16a34a",
+  red:     "#dc2626",
+  text:    "#0f2318",
+  muted:   "#6b8f72",
+  dim:     "#d1e8d4",
 };
 
 const G = {
-  blue:  `linear-gradient(135deg,#1a5fcc,#2979ff)`,
-  gold:  `linear-gradient(135deg,#b87c10,#f0b429)`,
-  green: `linear-gradient(135deg,#059650,#0db96d)`,
-  card:  `linear-gradient(160deg,#071120,#0a1828)`,
+  blue:  `linear-gradient(135deg,#15803d,#22c55e)`,
+  gold:  `linear-gradient(135deg,#ca8a04,#fbbf24)`,
+  green: `linear-gradient(135deg,#15803d,#22c55e)`,
+  card:  `linear-gradient(160deg,#ffffff,#f0f7f1)`,
 };
 
 // ─── Login ────────────────────────────────────────────────────────────────────
@@ -496,27 +496,26 @@ function Login({ onLogin }) {
     else setErr("Login yoki parol noto'g'ri!");
   };
   const inp={
-    padding:"13px 16px", background:"rgba(10,30,60,0.8)",
-    border:`1.5px solid ${C.border}`, borderRadius:12,
+    padding:"13px 16px", background:"#ffffff",
+    border:`1.5px solid rgba(22,163,74,0.25)`, borderRadius:12,
     color:C.text, fontSize:15, outline:"none",
     width:"100%", boxSizing:"border-box", fontFamily:"inherit",
-    transition:"border .2s",
+    transition:"border .2s", boxShadow:"0 1px 3px rgba(0,0,0,0.06)",
   };
   return (
-    <div style={{minHeight:"100vh",background:C.bg,display:"flex",flexDirection:"column",
-      alignItems:"center",justifyContent:"center",padding:"24px 20px",
-      fontFamily:"'Segoe UI',system-ui,sans-serif",
-      backgroundImage:"radial-gradient(ellipse at 50% 0%,rgba(26,95,204,0.12) 0%,transparent 70%)"}}>
+    <div style={{minHeight:"100vh",background:"linear-gradient(160deg,#f0faf2 0%,#e8f5eb 50%,#f0faf2 100%)",
+      display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",
+      padding:"24px 20px",fontFamily:"'Segoe UI',system-ui,sans-serif"}}>
 
       <style>{`
         @keyframes fadeUp{from{opacity:0;transform:translateY(28px)}to{opacity:1;transform:none}}
-        @keyframes glow{0%,100%{opacity:.6}50%{opacity:1}}
+        @keyframes glow{0%,100%{opacity:.7}50%{opacity:1}}
         @keyframes spin{to{transform:rotate(360deg)}}
         @keyframes scanLine{0%{top:6%}50%{top:84%}100%{top:6%}}
         @keyframes popIn{0%{transform:scale(.4);opacity:0}70%{transform:scale(1.08)}100%{transform:scale(1);opacity:1}}
-        @keyframes shimmer{0%{background-position:-200% 0}100%{background-position:200% 0}}
-        input::placeholder{color:#2a4a6a}
-        input:focus{border-color:#1a6cf5!important;box-shadow:0 0 0 3px rgba(26,108,245,0.12)}
+        input::placeholder{color:#9ab89e}
+        input:focus{border-color:#16a34a!important;box-shadow:0 0 0 3px rgba(22,163,74,0.12)}
+        button:active{transform:scale(0.98)}
       `}</style>
 
       <div style={{width:"100%",maxWidth:370,animation:"fadeUp .6s ease"}}>
@@ -533,12 +532,12 @@ function Login({ onLogin }) {
         </div>
 
         {/* Chiziq */}
-        <div style={{height:1,background:`linear-gradient(90deg,transparent,${C.gold},transparent)`,marginBottom:28}}/>
+        <div style={{height:2,background:`linear-gradient(90deg,transparent,#16a34a,transparent)`,marginBottom:28,borderRadius:2}}/>
 
         {/* Forma */}
-        <div style={{background:G.card,borderRadius:20,padding:"28px 24px",
-          border:`1px solid ${C.border}`,
-          boxShadow:"0 24px 60px rgba(0,0,0,0.6),0 0 0 1px rgba(26,108,245,0.08)"}}>
+        <div style={{background:"#ffffff",borderRadius:20,padding:"28px 24px",
+          border:"1px solid rgba(22,163,74,0.15)",
+          boxShadow:"0 8px 40px rgba(22,163,74,0.10),0 2px 8px rgba(0,0,0,0.06)"}}>
           <div style={{display:"flex",flexDirection:"column",gap:16}}>
             <div>
               <label style={{color:C.muted,fontSize:11,fontWeight:700,display:"block",
@@ -582,16 +581,16 @@ function Login({ onLogin }) {
         </div>
 
         {/* Demo */}
-        <div style={{marginTop:16,padding:"12px 16px",background:"rgba(255,255,255,0.02)",
-          borderRadius:12,border:`1px solid rgba(255,255,255,0.04)`}}>
-          <div style={{color:"#1e3a5a",fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:1,marginBottom:6}}>
+        <div style={{marginTop:14,padding:"12px 16px",background:"rgba(22,163,74,0.05)",
+          borderRadius:12,border:"1px solid rgba(22,163,74,0.12)"}}>
+          <div style={{color:"#6b8f72",fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:1,marginBottom:6}}>
             Demo kirish
           </div>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:4,fontSize:12}}>
-            <span style={{fontFamily:"monospace",color:"#2a4a6a"}}>admin / admin123</span>
-            <span style={{color:C.gold,fontWeight:600,fontSize:11}}>Boshliq</span>
-            <span style={{fontFamily:"monospace",color:"#2a4a6a"}}>hodim1 / 1234</span>
-            <span style={{color:C.blue2,fontWeight:600,fontSize:11}}>Hodim</span>
+            <span style={{fontFamily:"monospace",color:"#4a7a52"}}>admin / admin123</span>
+            <span style={{color:"#ca8a04",fontWeight:700,fontSize:11}}>Boshliq</span>
+            <span style={{fontFamily:"monospace",color:"#4a7a52"}}>hodim1 / 1234</span>
+            <span style={{color:"#16a34a",fontWeight:700,fontSize:11}}>Hodim</span>
           </div>
         </div>
       </div>
@@ -883,10 +882,11 @@ const lbl={color:C.muted,fontSize:11,fontWeight:700,display:"block",marginBottom
   textTransform:"uppercase",letterSpacing:1.1};
 const inputSt=ok=>({
   width:"100%",padding:"13px 16px",
-  background:ok?"rgba(13,185,109,0.07)":"rgba(4,14,30,0.7)",
-  border:`1.5px solid ${ok?"rgba(13,185,109,0.35)":C.border}`,
+  background:ok?"rgba(22,163,74,0.06)":"#ffffff",
+  border:`1.5px solid ${ok?"rgba(22,163,74,0.4)":"rgba(22,163,74,0.2)"}`,
   borderRadius:12,color:C.text,fontSize:15,outline:"none",
   boxSizing:"border-box",fontFamily:"inherit",transition:"all .2s",
+  boxShadow:"0 1px 4px rgba(0,0,0,0.05)",
 });
 
 // ─── Boshliq ──────────────────────────────────────────────────────────────────
