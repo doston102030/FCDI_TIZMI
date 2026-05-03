@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import Tesseract from "tesseract.js";
+import { parse as parseMrzLib } from "mrz";
 
 const MFY_LIST = [
   "O'zbekiston MFY","Namozgoh MFY","Mustaqillik MFY","Taraqqiyot MFY","Teraktashi MFY","Poloson MFY",
@@ -33,10 +34,10 @@ function PassportScanner({ onFound }) {
   const vRef      = useRef(null);
   const canvasRef = useRef(null);
   const streamRef = useRef(null);
+  const captureRef= useRef(null); // ImageCapture API
   const busyRef   = useRef(false);
   const foundRef  = useRef(false);
-  const wDigit    = useRef(null); // faqat raqam uchun worker
-  const wText     = useRef(null); // faqat harf uchun worker
+  const wMrz      = useRef(null); // MRZ uchun worker (raqam+harf+<)
   const scanCount = useRef(0);
   const [status, setStatus] = useState("⏳ Tayyorlanmoqda...");
   const [active, setActive] = useState(false);
@@ -59,74 +60,78 @@ function PassportScanner({ onFound }) {
     } catch {}
   };
 
-  // Rasm: crop + 3x zoom + kulrang + keskin kontrast + PNG
-  const enhance = (canvas, yStart, yEnd) => {
-    const sw = canvas.width, sh = canvas.height;
-    const cy = Math.floor(sh * yStart);
-    const ch = Math.floor(sh * (yEnd - yStart));
-    const S = 3;
-    const out = document.createElement("canvas");
-    out.width = sw * S; out.height = ch * S;
-    const ctx = out.getContext("2d");
-    ctx.drawImage(canvas, 0, cy, sw, ch, 0, 0, out.width, out.height);
-    const img = ctx.getImageData(0, 0, out.width, out.height);
-    const d = img.data;
-    for (let i = 0; i < d.length; i += 4) {
-      const g = 0.299 * d[i] + 0.587 * d[i+1] + 0.114 * d[i+2];
-      // Kuchli kontrast: quyuq → yanada quyuq, yorug' → yanada yorug'
-      const v = g < 110 ? Math.max(0, g * 0.45)
-              : g > 155 ? Math.min(255, g * 1.25 + 15)
-              : Math.round((g - 110) / 45 * 255);
-      d[i] = d[i+1] = d[i+2] = v;
-    }
-    ctx.putImageData(img, 0, 0);
-    return out.toDataURL("image/png");
-  };
-
   const isValidJshshir = n => {
     if (!/^[1-6]\d{13}$/.test(n)) return false;
     const mm = +n.slice(3, 5), dd = +n.slice(5, 7);
     return mm >= 1 && mm <= 12 && dd >= 1 && dd <= 31;
   };
 
-  // Old qismdan (ID karta: "Personal number" yonidagi raqam)
-  const tryFindFront = text => {
-    const kw = text.match(/(?:personal\s*number|shaxsiy\s*raqam)[^\d]*(\d{14})/i);
-    if (kw && isValidJshshir(kw[1])) return kw[1];
-    const hits = [...text.replace(/\D/g, "").matchAll(/[1-6]\d{13}/g)]
-      .map(m => m[0]).filter(isValidJshshir);
-    return hits[0] || null;
+  const cap = s => s ? s.charAt(0).toUpperCase() + s.slice(1).toLowerCase() : "";
+
+  // ── 1-QATLAM: QR kod (BarcodeDetector — OCR siz, bir zumda) ──
+  const tryQR = async videoEl => {
+    if (!("BarcodeDetector" in window)) return null;
+    try {
+      const det = new window.BarcodeDetector({ formats: ["qr_code","aztec","data_matrix","pdf417"] });
+      const codes = await det.detect(videoEl);
+      for (const code of codes) {
+        const raw = code.rawValue || "";
+        // JSHSHIR ni QR ichidan qidirish
+        const hits = [...raw.matchAll(/\d{14}/g)].map(m => m[0]).filter(isValidJshshir);
+        if (hits.length) return { jshshir: hits[0], name: null };
+      }
+    } catch {}
+    return null;
   };
 
-  // MRZ dan JSHSHIR + ism — ham ID karta (TD1), ham zagranpassport (TD3)
-  const parseMRZ = text => {
-    const cap = s => s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
-    const lines = text.split("\n")
-      .map(l => l.replace(/[^A-Z0-9<]/g, "").trim())
-      .filter(l => l.length >= 20);
-
-    let jshshir = null, name = null;
-
-    for (const line of lines) {
-      // ── JSHSHIR izlash ──
-      if (!jshshir) {
-        // TD1 (ID karta, 30 belgi): JSHSHIR pozitsiya 15-28
-        if (line.length >= 29) {
-          const c1 = line.slice(15, 29).replace(/</g, "");
-          if (/^\d{14}$/.test(c1) && isValidJshshir(c1)) jshshir = c1;
-        }
-        // TD3 (zagranpassport, 44 belgi): JSHSHIR pozitsiya 28-41
-        if (!jshshir && line.length >= 42) {
-          const c2 = line.slice(28, 42).replace(/</g, "");
-          if (/^\d{14}$/.test(c2) && isValidJshshir(c2)) jshshir = c2;
-        }
-        // Zaxira: istalgan joydagi to'g'ri 14 raqam
-        if (!jshshir) {
-          const hits = [...line.matchAll(/\d{14}/g)].map(m => m[0]).filter(isValidJshshir);
-          if (hits.length) jshshir = hits[0];
+  // ── 2-QATLAM: mrz library bilan to'g'ri MRZ parse ──
+  const tryMrzLib = (lines) => {
+    try {
+      const clean = lines.map(l => l.replace(/[^A-Z0-9<]/g, "").trim()).filter(l => l.length >= 20);
+      // TD1 (ID karta): 3 ta qator × 30 belgi
+      const td1 = clean.filter(l => l.length >= 28 && l.length <= 32);
+      if (td1.length >= 3) {
+        const res = parseMrzLib([td1[0].slice(0,30).padEnd(30,"<"), td1[1].slice(0,30).padEnd(30,"<"), td1[2].slice(0,30).padEnd(30,"<")]);
+        if (res?.fields) {
+          const j = res.fields.personalNumber?.replace(/</g,"");
+          const n = res.fields.firstName && res.fields.lastName
+            ? `${cap(res.fields.firstName.split("<")[0])} ${cap(res.fields.lastName)}`
+            : null;
+          if (j && isValidJshshir(j)) return { jshshir: j, name: n };
         }
       }
-      // ── Ism izlash (TD1 line3 yoki TD3 line1): FAMILIYA<<ISMI ──
+      // TD3 (zagranpassport): 2 ta qator × 44 belgi
+      const td3 = clean.filter(l => l.length >= 40 && l.length <= 48);
+      if (td3.length >= 2) {
+        const res = parseMrzLib([td3[0].slice(0,44).padEnd(44,"<"), td3[1].slice(0,44).padEnd(44,"<")]);
+        if (res?.fields) {
+          const j = res.fields.personalNumber?.replace(/</g,"");
+          const n = res.fields.firstName && res.fields.lastName
+            ? `${cap(res.fields.firstName.split("<")[0])} ${cap(res.fields.lastName)}`
+            : null;
+          if (j && isValidJshshir(j)) return { jshshir: j, name: n };
+        }
+      }
+    } catch {}
+    return null;
+  };
+
+  // ── 3-QATLAM: Qo'lda MRZ parse (zaxira) ──
+  const tryManualMrz = lines => {
+    const clean = lines.map(l => l.replace(/[^A-Z0-9<]/g,"").trim()).filter(l => l.length >= 20);
+    let jshshir = null, name = null;
+    for (const line of clean) {
+      if (!jshshir) {
+        // TD1: pozitsiya 15-28
+        const c1 = line.slice(15, 29).replace(/</g,"");
+        if (/^\d{14}$/.test(c1) && isValidJshshir(c1)) { jshshir = c1; continue; }
+        // TD3: pozitsiya 28-41
+        const c2 = line.slice(28, 42).replace(/</g,"");
+        if (/^\d{14}$/.test(c2) && isValidJshshir(c2)) { jshshir = c2; continue; }
+        // Istalgan joydan
+        const hits = [...line.matchAll(/\d{14}/g)].map(m=>m[0]).filter(isValidJshshir);
+        if (hits.length) jshshir = hits[0];
+      }
       if (!name) {
         const m = line.match(/([A-Z]{2,30})<<([A-Z]{2,30})/);
         if (m) name = `${cap(m[2])} ${cap(m[1])}`;
@@ -135,34 +140,37 @@ function PassportScanner({ onFound }) {
     return { jshshir, name };
   };
 
-  // Worker 1 — faqat raqam (0-9): kartaning old qismi uchun
-  // Worker 2 — raqam + harf + < (MRZ to'liq): zagranpassport va ID karta MRZ uchun
+  // ── Rasm yaxshilash: to'g'ri crop, 3x zoom, kontrast ──
+  const enhance = (src, yStart, yEnd) => {
+    const sw = src.width, sh = src.height;
+    const cy = Math.floor(sh * yStart), ch = Math.floor(sh * (yEnd - yStart));
+    const S = 3;
+    const out = document.createElement("canvas");
+    out.width = sw * S; out.height = ch * S;
+    const ctx = out.getContext("2d");
+    ctx.drawImage(src, 0, cy, sw, ch, 0, 0, out.width, out.height);
+    const img = ctx.getImageData(0, 0, out.width, out.height);
+    const d = img.data;
+    for (let i = 0; i < d.length; i += 4) {
+      const g = 0.299*d[i] + 0.587*d[i+1] + 0.114*d[i+2];
+      const v = g < 110 ? Math.max(0, g*0.4) : g > 155 ? Math.min(255, g*1.3+15) : (g-110)/45*255;
+      d[i] = d[i+1] = d[i+2] = Math.round(v);
+    }
+    ctx.putImageData(img, 0, 0);
+    return out.toDataURL("image/png");
+  };
+
+  // MRZ worker tayorlash (bitta, to'liq belgilar)
   useEffect(() => {
     let alive = true;
-    (async () => {
-      try {
-        const [w1, w2] = await Promise.all([
-          Tesseract.createWorker("eng"),
-          Tesseract.createWorker("eng"),
-        ]);
-        await Promise.all([
-          w1.setParameters({ tessedit_char_whitelist: "0123456789" }),
-          w2.setParameters({ tessedit_char_whitelist: "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789<" }),
-        ]);
-        if (!alive) { w1.terminate(); w2.terminate(); return; }
-        wDigit.current = w1;
-        wText.current  = w2;
-        setReady(true);
-        setStatus("Pasportni kameraga tutib turing...");
-      } catch {
-        if (alive) { setReady(true); setStatus("Pasportni kameraga tutib turing..."); }
-      }
-    })();
-    return () => {
-      alive = false;
-      wDigit.current?.terminate();
-      wText.current?.terminate();
-    };
+    Tesseract.createWorker("eng").then(async w => {
+      try { await w.setParameters({ tessedit_char_whitelist: "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789<" }); } catch {}
+      if (!alive) { w.terminate(); return; }
+      wMrz.current = w;
+      setReady(true);
+      setStatus("Pasportni kameraga tutib turing...");
+    }).catch(() => { if (alive) { setReady(true); setStatus("Pasportni kameraga tutib turing..."); } });
+    return () => { alive = false; wMrz.current?.terminate(); };
   }, []);
 
   useEffect(() => {
@@ -171,55 +179,103 @@ function PassportScanner({ onFound }) {
       video: { facingMode: "environment", width: { ideal: 1920 }, height: { ideal: 1080 } }
     }).then(s => {
       streamRef.current = s;
+      // ImageCapture API — kamera full rasm uchun
+      const track = s.getVideoTracks()[0];
+      if ("ImageCapture" in window) captureRef.current = new window.ImageCapture(track);
       setTimeout(() => { if (vRef.current) vRef.current.srcObject = s; }, 100);
       setActive(true);
     }).catch(() => setStatus("❌ Kamera ruxsati berilmadi!"));
     return () => streamRef.current?.getTracks().forEach(t => t.stop());
   }, [ready]);
 
-  const recog = (w, img) =>
-    w ? w.recognize(img) : Tesseract.recognize(img, "eng");
+  const getHighResFrame = async () => {
+    // ImageCapture bilan yuqori sifatli rasm
+    if (captureRef.current) {
+      try {
+        const blob = await captureRef.current.takePhoto();
+        return new Promise(resolve => {
+          const img = new Image();
+          img.onload = () => {
+            const c = document.createElement("canvas");
+            c.width = img.width; c.height = img.height;
+            c.getContext("2d").drawImage(img, 0, 0);
+            resolve(c);
+          };
+          img.src = URL.createObjectURL(blob);
+        });
+      } catch {}
+    }
+    // Zaxira: video kadrdan
+    const v = vRef.current, c = canvasRef.current;
+    if (!v || !c) return null;
+    c.width = v.videoWidth; c.height = v.videoHeight;
+    c.getContext("2d").drawImage(v, 0, 0);
+    return c;
+  };
 
   const scanFrame = async () => {
     if (busyRef.current || foundRef.current) return;
-    const v = vRef.current, c = canvasRef.current;
-    if (!v || !c || v.readyState < 2) return;
+    const v = vRef.current;
+    if (!v || v.readyState < 2) return;
     busyRef.current = true;
-    c.width = v.videoWidth; c.height = v.videoHeight;
-    c.getContext("2d").drawImage(v, 0, 0);
-    const photoUrl = c.toDataURL("image/jpeg", 0.85);
     scanCount.current++;
-    setStatus(`🔍 Skanerlanmoqda... (${scanCount.current}-urinish)`);
+    setStatus(`🔍 ${scanCount.current}-urinish...`);
+
     try {
-      // Parallel: yuqori 50% (old) + pastki 42% (MRZ)
-      // wDigit → faqat raqam (old qism)
-      // wText  → raqam+harf+< (MRZ, ham ID karta ham zagranpassport)
-      const [rFront, rMrz] = await Promise.all([
-        recog(wDigit.current, enhance(c, 0.0,  0.50)),
-        recog(wText.current,  enhance(c, 0.58, 1.0)),
-      ]);
-
-      const fromFront = tryFindFront(rFront.data.text);
-      const fromMrz   = parseMRZ(rMrz.data.text);
-      const jshshir   = fromFront || fromMrz.jshshir;
-      const fullName  = fromMrz.name;
-
-      if (jshshir) {
-        foundRef.current = true;
-        playSuccess();
-        setPulse(true);
-        streamRef.current?.getTracks().forEach(t => t.stop());
-        setTimeout(() => onFound(jshshir, fullName, photoUrl), 500);
+      // 1) QR kod — eng tez (OCR siz)
+      const qrResult = await tryQR(v);
+      if (qrResult?.jshshir) {
+        await finish(qrResult.jshshir, qrResult.name, "QR");
         return;
       }
-      setStatus(`📄 Pasportni yaqinroq va tekis tutib turing... (${scanCount.current})`);
+
+      // Yuqori sifatli kadr
+      const canvas = await getHighResFrame();
+      if (!canvas) { busyRef.current = false; return; }
+      const photoUrl = canvas.toDataURL("image/jpeg", 0.88);
+
+      // 2) MRZ OCR (pastki qism)
+      const mrzImg = enhance(canvas, 0.55, 1.0);
+      const recog  = wMrz.current
+        ? await wMrz.current.recognize(mrzImg)
+        : await Tesseract.recognize(mrzImg, "eng");
+      const mrzLines = recog.data.text.split("\n");
+
+      // mrz library bilan parse
+      const libResult = tryMrzLib(mrzLines);
+      if (libResult?.jshshir) {
+        await finish(libResult.jshshir, libResult.name, "MRZ", photoUrl);
+        return;
+      }
+
+      // 3) Qo'lda parse (zaxira)
+      const manResult = tryManualMrz(mrzLines);
+      if (manResult?.jshshir) {
+        await finish(manResult.jshshir, manResult.name, "fallback", photoUrl);
+        return;
+      }
+
+      setStatus(`📄 Pasportni to'g'ri va yaqin tutib turing... (${scanCount.current})`);
     } catch {}
     busyRef.current = false;
   };
 
+  const finish = async (jshshir, name, src, photoUrl) => {
+    foundRef.current = true;
+    playSuccess();
+    setPulse(true);
+    streamRef.current?.getTracks().forEach(t => t.stop());
+    // photoUrl yo'q bo'lsa video kadrdan olamiz
+    if (!photoUrl) {
+      const v = vRef.current, c = canvasRef.current;
+      if (v && c) { c.width = v.videoWidth; c.height = v.videoHeight; c.getContext("2d").drawImage(v,0,0); photoUrl = c.toDataURL("image/jpeg",0.85); }
+    }
+    setTimeout(() => onFound(jshshir, name, photoUrl), 500);
+  };
+
   useEffect(() => {
     if (!active) return;
-    const id = setInterval(scanFrame, 1500);
+    const id = setInterval(scanFrame, 1800);
     return () => clearInterval(id);
   }, [active]);
 

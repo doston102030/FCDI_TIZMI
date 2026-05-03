@@ -4,6 +4,7 @@
   "description": "MFY Monitoring - Fuqarolarni ro'yxatga olish tizimi",
   "private": true,
   "dependencies": {
+    "mrz": "^5.0.2",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-scripts": "5.0.1",
