@@ -83,14 +83,15 @@ function PassportScanner({ onFound }) {
     return out.toDataURL("image/png");
   };
 
-  // JSHSHIR formatini tekshirish (O'zbekiston standarti)
+  // JSHSHIR validatsiya
   const isValidJshshir = n => {
     if (!/^[1-6]\d{13}$/.test(n)) return false;
     const mm = +n.slice(3, 5), dd = +n.slice(5, 7);
     return mm >= 1 && mm <= 12 && dd >= 1 && dd <= 31;
   };
 
-  const tryFind = text => {
+  // Oldindan tekshiruv: kartaning old qismidan raqam izlash
+  const tryFindFront = text => {
     const kw = text.match(/(?:personal\s*number|shaxsiy\s*raqam)[^\d]*(\d{14})/i);
     if (kw && isValidJshshir(kw[1])) return kw[1];
     const hits = [...text.replace(/\D/g, "").matchAll(/[1-6]\d{13}/g)]
@@ -98,12 +99,31 @@ function PassportScanner({ onFound }) {
     return hits[0] || null;
   };
 
-  // MRZ: "ADXAMJONOV<<DOSTONBEK<<<" → "Dostonbek Adxamjonov"
+  // MRZ line 1 dan JSHSHIR: Uzbekiston ID kartasida pozitsiya 15-28 (0-indexed)
+  // Misol: "IUZBAD12345678901234560701065180016<" → pozitsiya 15-28 = "50701065180016"
+  const tryFindMRZ = text => {
+    const lines = text.split("\n")
+      .map(l => l.replace(/[^A-Z0-9<]/g, ""))
+      .filter(l => l.length >= 25);
+    for (const line of lines) {
+      // MRZ 1-qator: UZB mamlakatida JSHSHIR 15-28 pozitsiyada
+      const candidate = line.slice(15, 29).replace(/</g, "");
+      if (/^\d{14}$/.test(candidate) && isValidJshshir(candidate)) return candidate;
+      // Alternativ: barcha 14 raqamli guruhlarni qidirish
+      const hits = [...line.matchAll(/\d{14}/g)].map(m => m[0]).filter(isValidJshshir);
+      if (hits.length) return hits[0];
+    }
+    return null;
+  };
+
+  // MRZ 3-qatordan ism: "ADXAMJONOV<<DOSTONBEK<<<" → "Dostonbek Adxamjonov"
   const parseName = text => {
     const cap = s => s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
-    const t = text.replace(/\s/g, "");
-    const m = t.match(/([A-Z]{2,30})<<([A-Z]{2,30})/);
-    if (m) return `${cap(m[2])} ${cap(m[1])}`;
+    const lines = text.split("\n").map(l => l.replace(/[^A-Z<]/g, "")).filter(l => l.length > 5);
+    for (const line of lines) {
+      const m = line.match(/([A-Z]{2,})<<([A-Z]{2,})/);
+      if (m) return `${cap(m[2])} ${cap(m[1])}`;
+    }
     return null;
   };
 
@@ -148,6 +168,9 @@ function PassportScanner({ onFound }) {
     return () => streamRef.current?.getTracks().forEach(t => t.stop());
   }, [ready]);
 
+  const recog = (worker, img) =>
+    worker ? worker.recognize(img) : Tesseract.recognize(img, "eng");
+
   const scanFrame = async () => {
     if (busyRef.current || foundRef.current) return;
     const v = vRef.current, c = canvasRef.current;
@@ -159,22 +182,19 @@ function PassportScanner({ onFound }) {
     scanCount.current++;
     setStatus(`🔍 Skanerlanmoqda... (${scanCount.current}-urinish)`);
     try {
-      const recognize = wDigit.current
-        ? (img, w) => w.recognize(img)
-        : (img)    => Tesseract.recognize(img, "eng");
-
-      const [r1, r2] = await Promise.all([
-        wDigit.current
-          ? wDigit.current.recognize(enhance(c, 0,    0.65))
-          : Tesseract.recognize(enhance(c, 0, 0.65), "eng"),
-        wText.current
-          ? wText.current.recognize(enhance(c, 0.58, 1.0))
-          : Tesseract.recognize(enhance(c, 0.58, 1.0), "eng"),
+      // Old qism (0-50%): JSHSHIR front field uchun — MRZ ni butunlay kesib tashlaydi
+      // MRZ qism (58-100%): MRZ dan JSHSHIR + ism uchun
+      const [rFront, rMrz] = await Promise.all([
+        recog(wDigit.current, enhance(c, 0.0,  0.50)),
+        recog(wText.current,  enhance(c, 0.58, 1.0)),
       ]);
 
-      const jshshir = tryFind(r1.data.text);
+      // Avval old qismdan (aniqroq), keyin MRZ dan qidirish
+      const jshshir = tryFindFront(rFront.data.text)
+                   || tryFindMRZ(rMrz.data.text);
+
       if (jshshir) {
-        const fullName = parseName(r2.data.text);
+        const fullName = parseName(rMrz.data.text);
         foundRef.current = true;
         playSuccess();
         setPulse(true);
@@ -182,7 +202,7 @@ function PassportScanner({ onFound }) {
         setTimeout(() => onFound(jshshir, fullName, photoUrl), 500);
         return;
       }
-      setStatus(`📄 Pasportni to'g'ri tuting... (${scanCount.current}-urinish)`);
+      setStatus(`📄 Pasportni yaqinroq va tekis tutib turing... (${scanCount.current})`);
     } catch {}
     busyRef.current = false;
   };
