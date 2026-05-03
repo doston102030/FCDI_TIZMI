@@ -196,37 +196,50 @@ function PassportScanner({ onFound }) {
     try { await track.applyConstraints({ advanced:[{ torch:newVal }] }); setTorch(newVal); } catch {}
   };
 
-  // ── Worker init ──
+  // ── Worker — ixtiyoriy, ishlamasa ham bo'ladi ──
   useEffect(() => {
-    let alive=true;
-    Tesseract.createWorker("eng").then(async w => {
-      try { await w.setParameters({ tessedit_char_whitelist:"ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789<" }); } catch {}
-      if (!alive){w.terminate();return;}
-      wRef.current=w; setReady(true); setStatus("Hujjatni kameraga tuting...");
-    }).catch(()=>{ if(alive){setReady(true);setStatus("Hujjatni kameraga tuting...");} });
-    return ()=>{ alive=false; wRef.current?.terminate(); };
-  },[]);
+    let alive = true;
+    Tesseract.createWorker("eng")
+      .then(async w => {
+        try { await w.setParameters({ tessedit_char_whitelist: "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789<" }); } catch {}
+        if (!alive) { w.terminate(); return; }
+        wRef.current = w;
+      }).catch(() => {});
+    // Worker kutmaymiz — kamerani darhol ochamiz
+    setReady(true);
+    setStatus("Hujjatni kameraga tuting...");
+    return () => { alive = false; wRef.current?.terminate(); };
+  }, []);
 
-  // ── Kamera ──
-  useEffect(()=>{
-    if(!ready) return;
-    navigator.mediaDevices.getUserMedia({
-      video:{
-        facingMode:{ideal:"environment"},
-        width:{ideal:1920,min:1280}, height:{ideal:1080,min:720},
-        advanced:[{focusMode:"continuous",exposureMode:"continuous",whiteBalanceMode:"continuous"}]
+  // ── Kamera — sodda constraints, barcha Androydda ishlaydi ──
+  useEffect(() => {
+    if (!ready) return;
+    const open = async () => {
+      // Avval ideal constraints bilan urinib ko'r
+      const constraints = [
+        { video: { facingMode: { ideal: "environment" }, width: { ideal: 1280 }, height: { ideal: 720 } } },
+        { video: { facingMode: "environment" } },
+        { video: true },
+      ];
+      for (const c of constraints) {
+        try {
+          const s = await navigator.mediaDevices.getUserMedia(c);
+          strmRef.current = s;
+          const track = s.getVideoTracks()[0];
+          if ("ImageCapture" in window) {
+            try { capRef.current = new window.ImageCapture(track); } catch {}
+          }
+          try { if (track.getCapabilities?.()?.torch) setTorchOk(true); } catch {}
+          setTimeout(() => { if (vRef.current) vRef.current.srcObject = s; }, 100);
+          setActive(true);
+          return;
+        } catch {}
       }
-    }).then(s=>{
-      strmRef.current=s;
-      const track=s.getVideoTracks()[0];
-      if("ImageCapture" in window) capRef.current=new window.ImageCapture(track);
-      const caps=track.getCapabilities?.();
-      if(caps?.torch) setTorchOk(true);
-      setTimeout(()=>{ if(vRef.current) vRef.current.srcObject=s; },100);
-      setActive(true);
-    }).catch(()=>setStatus("❌ Kamera ruxsati berilmadi!"));
-    return ()=>strmRef.current?.getTracks().forEach(t=>t.stop());
-  },[ready]);
+      setStatus("❌ Kamera ruxsati berilmadi!");
+    };
+    open();
+    return () => strmRef.current?.getTracks().forEach(t => t.stop());
+  }, [ready]);
 
   // ── Yuqori sifatli kadr ──
   const getFrame = async () => {
@@ -254,39 +267,45 @@ function PassportScanner({ onFound }) {
 
   // ── Asosiy skaner ──
   const scan = async () => {
-    if(busy.current||done.current) return;
-    const v=vRef.current;
-    if(!v||v.readyState<2) return;
-    busy.current=true;
+    if (busy.current || done.current) return;
+    const v = vRef.current;
+    if (!v || v.readyState < 2) return;
+    busy.current = true;
     tries.current++;
-    setStatus(`🔍 Skanerlanmoqda... (${tries.current}-urinish)`);
+    setStatus(`🔍 ${tries.current}-urinish...`);
 
     try {
-      // 1) QR kod — eng tez
-      const qr=await tryQR(v);
-      if(qr?.j){ finish(qr.j,qr.name,null); return; }
+      // 1) QR kod — bir zumda
+      const qr = await tryQR(v);
+      if (qr?.j) { finish(qr.j, qr.name, null); return; }
 
-      // Yuqori sifatli kadr
-      const canvas=await getFrame();
-      if(!canvas){ busy.current=false; return; }
+      // Video kadrdan canvas
+      const canvas = cRef.current;
+      if (!canvas) { busy.current = false; return; }
+      canvas.width = v.videoWidth || 640;
+      canvas.height = v.videoHeight || 480;
+      canvas.getContext("2d").drawImage(v, 0, 0);
+      const photo = canvas.toDataURL("image/jpeg", 0.88);
 
-      // Aniqlik tekshiruv — xira kadrni o'tkazib yuborish
-      const sh=sharpness(canvas);
-      if(sh<8&&tries.current<5){ setStatus(`📷 Kamerani tekis tuting... (${tries.current})`); busy.current=false; return; }
-
-      const photo=canvas.toDataURL("image/jpeg",0.9);
-
-      // 2) MRZ OCR (pastki 45%)
-      const mrzImg=enhance(canvas,0.55,1.0);
-      const rec=wRef.current
+      // 2) To'liq rasm OCR (pastki 50% — MRZ)
+      const mrzImg = enhance(canvas, 0.5, 1.0);
+      const rec = wRef.current
         ? await wRef.current.recognize(mrzImg)
-        : await Tesseract.recognize(mrzImg,"eng");
-      const mrz=tryMrz(rec.data.text);
-      if(mrz?.j){ finish(mrz.j,mrz.name,photo); return; }
+        : await Tesseract.recognize(mrzImg, "eng");
+      const mrz = tryMrz(rec.data.text);
+      if (mrz?.j) { finish(mrz.j, mrz.name, photo); return; }
 
-      setStatus(`📄 Pasportni yaqinroq va tekis tuting... (${tries.current})`);
-    } catch {}
-    busy.current=false;
+      // 3) Yuqori qism ham tekshirish (Personal number maydoni)
+      const topImg = enhance(canvas, 0.0, 0.55);
+      const rec2 = wRef.current
+        ? await wRef.current.recognize(topImg)
+        : await Tesseract.recognize(topImg, "eng");
+      const top = tryMrz(rec2.data.text);
+      if (top?.j) { finish(top.j, top.name, photo); return; }
+
+      setStatus(`📄 Hujjatni yaqinroq va tekis tuting... (${tries.current})`);
+    } catch (e) { console.log("scan err", e); }
+    busy.current = false;
   };
 
   const finish = (j,name,photo) => {
@@ -377,10 +396,18 @@ function Camera({ onCapture }) {
 
   const start=async()=>{
     try{
-      const s=await navigator.mediaDevices.getUserMedia({video:{facingMode:"user",width:640,height:480}});
+      const s=await navigator.mediaDevices.getUserMedia({
+        video:{ facingMode:{ideal:"environment"}, width:{ideal:1280}, height:{ideal:720} }
+      });
       setStream(s); setOn(true);
       setTimeout(()=>{ if(vRef.current) vRef.current.srcObject=s; },100);
-    }catch{ alert("Kamera ruxsati berilmadi!"); }
+    }catch{
+      try{
+        const s=await navigator.mediaDevices.getUserMedia({video:true});
+        setStream(s); setOn(true);
+        setTimeout(()=>{ if(vRef.current) vRef.current.srcObject=s; },100);
+      }catch{ alert("Kamera ruxsati berilmadi!"); }
+    }
   };
   const stop=()=>{ stream?.getTracks().forEach(t=>t.stop()); setStream(null); setOn(false); };
   const snap=()=>{
@@ -695,9 +722,15 @@ function Hodim({ user, records, setRecords, onLogout }) {
           {/* JSHSHIR */}
           <div>
             <label style={lbl}>🔢 JShShIR — 14 raqam {jshshir.length===14&&<span style={{color:"#22c55e",marginLeft:6}}>✓ to'g'ri</span>}</label>
-            <input value={jshshir} onChange={e=>{if(/^\d{0,14}$/.test(e.target.value))setJshshir(e.target.value);}}
-              placeholder="Avtomatik yoki qo'lda" maxLength={14}
-              style={{...inputSt(jshshir.length===14),fontSize:18,letterSpacing:3,fontFamily:"monospace",fontWeight:700}}/>
+            <input
+              type="tel"
+              inputMode="numeric"
+              pattern="[0-9]*"
+              value={jshshir}
+              onChange={e=>{ const v=e.target.value.replace(/\D/g,""); if(v.length<=14) setJshshir(v); }}
+              placeholder="Avtomatik yoki qo'lda"
+              maxLength={14}
+              style={{...inputSt(jshshir.length===14),fontSize:20,letterSpacing:4,fontFamily:"monospace",fontWeight:700}}/>
             {jshshir&&jshshir.length<14&&<div style={{color:"#f59e0b",fontSize:11,marginTop:5}}>{14-jshshir.length} ta raqam qoldi</div>}
           </div>
 
