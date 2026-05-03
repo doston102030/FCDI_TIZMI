@@ -325,9 +325,9 @@ function PassportScanner({ onFound }) {
     <div>
       <div style={{position:"relative",borderRadius:16,overflow:"hidden",background:"#000",minHeight:200}}>
         {!ready&&(
-          <div style={{position:"absolute",inset:0,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:12,background:"#0b1220"}}>
-            <div style={{width:36,height:36,border:"3px solid #6366f1",borderTopColor:"transparent",borderRadius:"50%",animation:"spin .8s linear infinite"}}/>
-            <span style={{color:"#6366f1",fontSize:13,fontWeight:600}}>OCR yuklanmoqda...</span>
+          <div style={{position:"absolute",inset:0,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:12,background:"#e8f5ea"}}>
+            <div style={{width:36,height:36,border:"3px solid #16a34a",borderTopColor:"transparent",borderRadius:"50%",animation:"spin .8s linear infinite"}}/>
+            <span style={{color:"#16a34a",fontSize:13,fontWeight:600}}>OCR yuklanmoqda...</span>
           </div>
         )}
         <video ref={vRef} autoPlay playsInline muted style={{width:"100%",display:"block",maxHeight:280,objectFit:"cover",opacity:ready?1:0}}/>
@@ -663,7 +663,7 @@ function Hodim({ user, records, setRecords, onLogout }) {
   const filtered=MFY_LIST.filter(m=>m.name.toLowerCase().includes(search.toLowerCase()));
 
   const srch={width:"100%",padding:"11px 14px 11px 40px",
-    background:"rgba(4,14,30,0.8)",border:`1px solid ${C.border}`,
+    background:"#ffffff",border:`1px solid ${C.border}`,
     borderRadius:12,color:C.text,fontSize:14,outline:"none",boxSizing:"border-box",
     fontFamily:"inherit"};
 
@@ -708,7 +708,7 @@ function Hodim({ user, records, setRecords, onLogout }) {
       </div>}
 
       {/* Header */}
-      <div style={{background:"rgba(3,8,15,0.97)",backdropFilter:"blur(16px)",
+      <div style={{background:"rgba(255,255,255,0.97)",backdropFilter:"blur(16px)",
         padding:"12px 18px",display:"flex",justifyContent:"space-between",alignItems:"center",
         borderBottom:`1px solid ${C.border}`,position:"sticky",top:0,zIndex:50}}>
         <div style={{display:"flex",alignItems:"center",gap:10}}>
@@ -748,7 +748,7 @@ function Hodim({ user, records, setRecords, onLogout }) {
             return(
               <button key={m.id} onClick={()=>{setMfy(m);setStep("capture");setSearch("");}}
                 style={{padding:"11px 14px",
-                  background:cnt>0?"rgba(26,108,245,0.08)":"rgba(10,24,40,0.6)",
+                  background:cnt>0?"rgba(26,108,245,0.08)":"#ffffff",
                   border:cnt>0?`1px solid rgba(26,108,245,0.22)`:`1px solid ${C.border}`,
                   borderRadius:11,color:C.text,fontWeight:500,fontSize:13,cursor:"pointer",
                   textAlign:"left",display:"flex",justifyContent:"space-between",alignItems:"center",
@@ -861,7 +861,7 @@ function Hodim({ user, records, setRecords, onLogout }) {
           <button onClick={submit} disabled={sending||!allOk}
             style={{padding:15,border:"none",borderRadius:13,fontWeight:800,fontSize:15,
               cursor:!allOk||sending?"default":"pointer",color:"#fff",transition:"all .2s",
-              background:allOk&&!sending?G.green:"rgba(10,24,40,0.8)",
+              background:allOk&&!sending?G.green:"#f4faf5",
               opacity:!allOk||sending?0.45:1,
               boxShadow:allOk&&!sending?"0 8px 28px rgba(13,185,109,0.3)":"none"}}>
             {sending
@@ -918,15 +918,17 @@ function Boshliq({ user, records, onLogout }) {
     a.download=`mfy_${todayStr().replace(/\./g,"-")}.csv`; a.click();
   };
 
-  const hdr={background:"rgba(3,8,15,0.97)",backdropFilter:"blur(16px)",
-    padding:"12px 16px",borderBottom:`1px solid ${C.border}`,position:"sticky",top:0,zIndex:50};
-  const srch2={width:"100%",padding:"10px 14px 10px 38px",background:"rgba(4,14,30,0.8)",
-    border:`1px solid ${C.border}`,borderRadius:11,color:C.text,fontSize:13,
-    outline:"none",boxSizing:"border-box",fontFamily:"inherit"};
-  const chip=(on)=>({padding:"6px 14px",border:"none",borderRadius:9,fontWeight:700,
+  const hdr={background:"rgba(255,255,255,0.97)",backdropFilter:"blur(16px)",
+    padding:"12px 16px",borderBottom:`1px solid ${C.border}`,position:"sticky",top:0,zIndex:50,
+    boxShadow:"0 2px 12px rgba(22,163,74,0.08)"};
+  const srch2={width:"100%",padding:"10px 14px 10px 38px",background:"#ffffff",
+    border:`1px solid rgba(22,163,74,0.22)`,borderRadius:11,color:C.text,fontSize:13,
+    outline:"none",boxSizing:"border-box",fontFamily:"inherit",
+    boxShadow:"0 1px 4px rgba(0,0,0,0.05)"};
+  const chip=(on)=>({padding:"6px 14px",borderRadius:9,fontWeight:700,
     fontSize:11,cursor:"pointer",letterSpacing:.3,
-    background:on?G.blue:"rgba(10,24,40,0.8)",color:on?"#fff":C.muted,
-    border:on?"none":`1px solid ${C.border}`});
+    background:on?G.blue:"#ffffff",color:on?"#fff":C.muted,
+    border:on?`1px solid transparent`:`1px solid rgba(22,163,74,0.2)`});
 
   if(detail) return (
     <div style={{minHeight:"100vh",background:C.bg,fontFamily:"'Segoe UI',system-ui,sans-serif",color:C.text}}>
@@ -957,7 +959,7 @@ function Boshliq({ user, records, onLogout }) {
             {[["📅",fmtDate(new Date(detail.timestamp))],["🕐",fmt(detail.timestamp)],
               ["👤",detail.hodimName],["📍",`${detail.coords?.lat?.slice(0,8)}, ${detail.coords?.lng?.slice(0,8)}`]
             ].map(([ic,v],k)=>(
-              <div key={k} style={{padding:"8px 11px",background:"rgba(4,14,30,0.8)",
+              <div key={k} style={{padding:"8px 11px",background:"#f4faf5",
                 borderRadius:9,fontSize:11,color:C.muted,border:`1px solid ${C.border}`}}>
                 {ic} <span style={{color:C.text}}>{v}</span>
               </div>
