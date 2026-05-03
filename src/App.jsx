@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import Tesseract from "tesseract.js";
 import { parse as parseMrzLib } from "mrz";
+import { db, addRecord, listenRecords } from "./firebase";
 
 // ─── Ma'lumotlar ──────────────────────────────────────────────────────────────
 const MFY_LIST = [
@@ -527,17 +528,34 @@ function Hodim({ user, records, setRecords, onLogout }) {
     show("✅ JShShIR aniqlandi!");
   };
 
-  const submit=()=>{
+  const submit = async () => {
     if(!face||!passport||!name.trim()||jshshir.length!==14){show("Barcha maydonlarni to'ldiring!","err");return;}
     setSending(true);
-    setTimeout(()=>{
-      const rec={id:Date.now(),hodim:user.username,hodimName:user.name,mfy,
-        fullName:name.trim(),jshshir,facePhoto:face,passportPhoto:passport,
-        coords,timestamp:new Date().toISOString()};
-      setRecords(p=>[...p,rec]);
-      setSending(false); setSuccess(rec);
-      setFace(null);setPassport(null);setName("");setJshshir("");setStep("mfy");
-    },900);
+    try {
+      const rec = {
+        id: Date.now(), hodim: user.username, hodimName: user.name, mfy,
+        fullName: name.trim(), jshshir, facePhoto: face, passportPhoto: passport,
+        coords, timestamp: new Date().toISOString()
+      };
+
+      // 1) Firebase ga saqlash
+      await addRecord(rec);
+
+      // 2) Telegram ga yuborish
+      try {
+        await fetch("/api/telegram", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ record: rec, facePhoto: face, passportPhoto: passport }),
+        });
+      } catch {}
+
+      setSuccess(rec);
+      setFace(null); setPassport(null); setName(""); setJshshir(""); setStep("mfy");
+    } catch (e) {
+      show("Xatolik! Internet aloqasini tekshiring.", "err");
+    }
+    setSending(false);
   };
 
   const steps=[{ok:!!name.trim(),l:"FIO"},{ok:!!face,l:"Yuz"},{ok:!!passport,l:"Pasport"},{ok:jshshir.length===14,l:"JSHSHIR"}];
@@ -871,12 +889,15 @@ function Boshliq({ user, records, onLogout }) {
 // ─── App ──────────────────────────────────────────────────────────────────────
 export default function App() {
   const [user,setUser]=useState(null);
-  const [records,setRecords]=useState(()=>{
-    try{return JSON.parse(localStorage.getItem("mfy_records")||"[]");}catch{return[];}
-  });
-  const save=r=>{ setRecords(r); try{localStorage.setItem("mfy_records",JSON.stringify(r));}catch{} };
+  const [records,setRecords]=useState([]);
+
+  // Firebase real-time
+  useEffect(()=>{
+    const unsub = listenRecords(setRecords);
+    return ()=>unsub();
+  },[]);
 
   if(!user) return <Login onLogin={setUser}/>;
-  if(user.role==="hodim") return <Hodim user={user} records={records} setRecords={save} onLogout={()=>setUser(null)}/>;
+  if(user.role==="hodim") return <Hodim user={user} records={records} setRecords={setRecords} onLogout={()=>setUser(null)}/>;
   return <Boshliq user={user} records={records} onLogout={()=>setUser(null)}/>;
 }
