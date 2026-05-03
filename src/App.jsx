@@ -83,14 +83,13 @@ function PassportScanner({ onFound }) {
     return out.toDataURL("image/png");
   };
 
-  // JSHSHIR validatsiya
   const isValidJshshir = n => {
     if (!/^[1-6]\d{13}$/.test(n)) return false;
     const mm = +n.slice(3, 5), dd = +n.slice(5, 7);
     return mm >= 1 && mm <= 12 && dd >= 1 && dd <= 31;
   };
 
-  // Oldindan tekshiruv: kartaning old qismidan raqam izlash
+  // Old qismdan (ID karta: "Personal number" yonidagi raqam)
   const tryFindFront = text => {
     const kw = text.match(/(?:personal\s*number|shaxsiy\s*raqam)[^\d]*(\d{14})/i);
     if (kw && isValidJshshir(kw[1])) return kw[1];
@@ -99,35 +98,45 @@ function PassportScanner({ onFound }) {
     return hits[0] || null;
   };
 
-  // MRZ line 1 dan JSHSHIR: Uzbekiston ID kartasida pozitsiya 15-28 (0-indexed)
-  // Misol: "IUZBAD12345678901234560701065180016<" → pozitsiya 15-28 = "50701065180016"
-  const tryFindMRZ = text => {
-    const lines = text.split("\n")
-      .map(l => l.replace(/[^A-Z0-9<]/g, ""))
-      .filter(l => l.length >= 25);
-    for (const line of lines) {
-      // MRZ 1-qator: UZB mamlakatida JSHSHIR 15-28 pozitsiyada
-      const candidate = line.slice(15, 29).replace(/</g, "");
-      if (/^\d{14}$/.test(candidate) && isValidJshshir(candidate)) return candidate;
-      // Alternativ: barcha 14 raqamli guruhlarni qidirish
-      const hits = [...line.matchAll(/\d{14}/g)].map(m => m[0]).filter(isValidJshshir);
-      if (hits.length) return hits[0];
-    }
-    return null;
-  };
-
-  // MRZ 3-qatordan ism: "ADXAMJONOV<<DOSTONBEK<<<" → "Dostonbek Adxamjonov"
-  const parseName = text => {
+  // MRZ dan JSHSHIR + ism — ham ID karta (TD1), ham zagranpassport (TD3)
+  const parseMRZ = text => {
     const cap = s => s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
-    const lines = text.split("\n").map(l => l.replace(/[^A-Z<]/g, "")).filter(l => l.length > 5);
+    const lines = text.split("\n")
+      .map(l => l.replace(/[^A-Z0-9<]/g, "").trim())
+      .filter(l => l.length >= 20);
+
+    let jshshir = null, name = null;
+
     for (const line of lines) {
-      const m = line.match(/([A-Z]{2,})<<([A-Z]{2,})/);
-      if (m) return `${cap(m[2])} ${cap(m[1])}`;
+      // ── JSHSHIR izlash ──
+      if (!jshshir) {
+        // TD1 (ID karta, 30 belgi): JSHSHIR pozitsiya 15-28
+        if (line.length >= 29) {
+          const c1 = line.slice(15, 29).replace(/</g, "");
+          if (/^\d{14}$/.test(c1) && isValidJshshir(c1)) jshshir = c1;
+        }
+        // TD3 (zagranpassport, 44 belgi): JSHSHIR pozitsiya 28-41
+        if (!jshshir && line.length >= 42) {
+          const c2 = line.slice(28, 42).replace(/</g, "");
+          if (/^\d{14}$/.test(c2) && isValidJshshir(c2)) jshshir = c2;
+        }
+        // Zaxira: istalgan joydagi to'g'ri 14 raqam
+        if (!jshshir) {
+          const hits = [...line.matchAll(/\d{14}/g)].map(m => m[0]).filter(isValidJshshir);
+          if (hits.length) jshshir = hits[0];
+        }
+      }
+      // ── Ism izlash (TD1 line3 yoki TD3 line1): FAMILIYA<<ISMI ──
+      if (!name) {
+        const m = line.match(/([A-Z]{2,30})<<([A-Z]{2,30})/);
+        if (m) name = `${cap(m[2])} ${cap(m[1])}`;
+      }
     }
-    return null;
+    return { jshshir, name };
   };
 
-  // 2 ta alohida worker: biri faqat raqam, biri faqat harf o'qiydi
+  // Worker 1 — faqat raqam (0-9): kartaning old qismi uchun
+  // Worker 2 — raqam + harf + < (MRZ to'liq): zagranpassport va ID karta MRZ uchun
   useEffect(() => {
     let alive = true;
     (async () => {
@@ -138,7 +147,7 @@ function PassportScanner({ onFound }) {
         ]);
         await Promise.all([
           w1.setParameters({ tessedit_char_whitelist: "0123456789" }),
-          w2.setParameters({ tessedit_char_whitelist: "ABCDEFGHIJKLMNOPQRSTUVWXYZ<" }),
+          w2.setParameters({ tessedit_char_whitelist: "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789<" }),
         ]);
         if (!alive) { w1.terminate(); w2.terminate(); return; }
         wDigit.current = w1;
@@ -146,7 +155,7 @@ function PassportScanner({ onFound }) {
         setReady(true);
         setStatus("Pasportni kameraga tutib turing...");
       } catch {
-        if (alive) setReady(true);
+        if (alive) { setReady(true); setStatus("Pasportni kameraga tutib turing..."); }
       }
     })();
     return () => {
@@ -168,8 +177,8 @@ function PassportScanner({ onFound }) {
     return () => streamRef.current?.getTracks().forEach(t => t.stop());
   }, [ready]);
 
-  const recog = (worker, img) =>
-    worker ? worker.recognize(img) : Tesseract.recognize(img, "eng");
+  const recog = (w, img) =>
+    w ? w.recognize(img) : Tesseract.recognize(img, "eng");
 
   const scanFrame = async () => {
     if (busyRef.current || foundRef.current) return;
@@ -182,19 +191,20 @@ function PassportScanner({ onFound }) {
     scanCount.current++;
     setStatus(`🔍 Skanerlanmoqda... (${scanCount.current}-urinish)`);
     try {
-      // Old qism (0-50%): JSHSHIR front field uchun — MRZ ni butunlay kesib tashlaydi
-      // MRZ qism (58-100%): MRZ dan JSHSHIR + ism uchun
+      // Parallel: yuqori 50% (old) + pastki 42% (MRZ)
+      // wDigit → faqat raqam (old qism)
+      // wText  → raqam+harf+< (MRZ, ham ID karta ham zagranpassport)
       const [rFront, rMrz] = await Promise.all([
         recog(wDigit.current, enhance(c, 0.0,  0.50)),
         recog(wText.current,  enhance(c, 0.58, 1.0)),
       ]);
 
-      // Avval old qismdan (aniqroq), keyin MRZ dan qidirish
-      const jshshir = tryFindFront(rFront.data.text)
-                   || tryFindMRZ(rMrz.data.text);
+      const fromFront = tryFindFront(rFront.data.text);
+      const fromMrz   = parseMRZ(rMrz.data.text);
+      const jshshir   = fromFront || fromMrz.jshshir;
+      const fullName  = fromMrz.name;
 
       if (jshshir) {
-        const fullName = parseName(rMrz.data.text);
         foundRef.current = true;
         playSuccess();
         setPulse(true);
