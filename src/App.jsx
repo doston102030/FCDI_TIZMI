@@ -39,18 +39,36 @@ function PassportScanner({ onFound }) {
   const [active, setActive] = useState(false);
   const [pulse, setPulse]   = useState(false);
 
-  const cropTop = canvas => {
+  const cropPart = (canvas, yStart, yEnd) => {
     const c = document.createElement("canvas");
-    c.width = canvas.width; c.height = Math.floor(canvas.height * 0.62);
-    c.getContext("2d").drawImage(canvas, 0, 0);
+    c.width = canvas.width;
+    c.height = Math.floor(canvas.height * (yEnd - yStart));
+    c.getContext("2d").drawImage(canvas, 0, -canvas.height * yStart);
     return c.toDataURL("image/jpeg", 0.88);
   };
 
   const tryFind = text => {
     const kw = text.match(/(?:personal\s*number|shaxsiy\s*raqam)[^\d]*(\d{14})/i);
     if (kw) return kw[1];
-    const m = [...text.replace(/\s/g, "").matchAll(/[1-6]\d{13}/g)];
+    // MRZ qatorlarini olib tashlash (faqat katta harflar va < belgisi)
+    const noMrz = text.split("\n").filter(l => !(/^[A-Z0-9<]{10,}$/).test(l.trim())).join(" ");
+    const m = [...noMrz.replace(/\s/g, "").matchAll(/[1-6]\d{13}/g)];
     return m.length ? m[0][0] : null;
+  };
+
+  // MRZ qatoridan ism o'qish: "ADXAMJONOV<<DOSTONBEK<<<" → "Dostonbek Adxamjonov"
+  const parseName = text => {
+    const lines = text.split("\n").map(l => l.trim());
+    for (const line of lines) {
+      const m = line.match(/([A-Z]{2,})<<([A-Z]+)/);
+      if (m) {
+        const cap = s => s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
+        const surname  = cap(m[1]);
+        const firstname = cap(m[2]);
+        return `${firstname} ${surname}`;
+      }
+    }
+    return null;
   };
 
   const scanFrame = async () => {
@@ -62,13 +80,18 @@ function PassportScanner({ onFound }) {
     c.getContext("2d").drawImage(v, 0, 0);
     const photoUrl = c.toDataURL("image/jpeg", 0.75);
     try {
-      const result = await Tesseract.recognize(cropTop(c), "eng");
-      const jshshir = tryFind(result.data.text);
+      // JSHSHIR uchun yuqori qism, ism uchun pastki qism — parallel
+      const [topResult, botResult] = await Promise.all([
+        Tesseract.recognize(cropPart(c, 0, 0.65), "eng"),
+        Tesseract.recognize(cropPart(c, 0.60, 1.0), "eng"),
+      ]);
+      const jshshir = tryFind(topResult.data.text);
       if (jshshir) {
+        const fullName = parseName(botResult.data.text);
         foundRef.current = true;
         setPulse(true);
         streamRef.current?.getTracks().forEach(t => t.stop());
-        setTimeout(() => onFound(jshshir, photoUrl), 400);
+        setTimeout(() => onFound(jshshir, fullName, photoUrl), 400);
         return;
       }
       setStatus("Pasportni yaqinroq va to'g'ri tutib turing...");
@@ -318,10 +341,15 @@ function Hodim({ user, records, setRecords, onLogout }) {
     setTimeout(() => setToast(null), 3500);
   };
 
-  const onPassportFound = (j, photo) => {
+  const onPassportFound = (j, fullName, photo) => {
     setJshshir(j);
     setPassport(photo);
-    show("✅ JShShIR avtomatik topildi!");
+    if (fullName && !name.trim()) {
+      setName(fullName);
+      show("✅ JShShIR va ism avtomatik topildi!");
+    } else {
+      show("✅ JShShIR avtomatik topildi!");
+    }
   };
 
   const submit = () => {
