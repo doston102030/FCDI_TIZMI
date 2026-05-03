@@ -35,58 +35,118 @@ function PassportScanner({ onFound }) {
   const streamRef = useRef(null);
   const busyRef   = useRef(false);
   const foundRef  = useRef(false);
-  const [status, setStatus] = useState("Kamera yoqilmoqda...");
+  const wDigit    = useRef(null); // faqat raqam uchun worker
+  const wText     = useRef(null); // faqat harf uchun worker
+  const scanCount = useRef(0);
+  const [status, setStatus] = useState("⏳ Tayyorlanmoqda...");
   const [active, setActive] = useState(false);
   const [pulse, setPulse]   = useState(false);
+  const [ready, setReady]   = useState(false);
 
-  // Rasmni OCR uchun tayyorlash: crop + 2.5x scale + kontrast + PNG
-  const enhanceImg = (canvas, yStart, yEnd) => {
+  // Muvaffaqiyat ovozi — Do-Mi-Sol akkord
+  const playSuccess = () => {
+    try {
+      const ac = new (window.AudioContext || window.webkitAudioContext)();
+      [[523,0,0.13],[659,0.14,0.13],[784,0.28,0.28]].forEach(([freq,t,dur]) => {
+        const osc = ac.createOscillator(), gain = ac.createGain();
+        osc.connect(gain); gain.connect(ac.destination);
+        osc.frequency.value = freq; osc.type = "sine";
+        gain.gain.setValueAtTime(0.4, ac.currentTime + t);
+        gain.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + t + dur);
+        osc.start(ac.currentTime + t);
+        osc.stop(ac.currentTime + t + dur + 0.05);
+      });
+    } catch {}
+  };
+
+  // Rasm: crop + 3x zoom + kulrang + keskin kontrast + PNG
+  const enhance = (canvas, yStart, yEnd) => {
     const sw = canvas.width, sh = canvas.height;
     const cy = Math.floor(sh * yStart);
     const ch = Math.floor(sh * (yEnd - yStart));
-    const SCALE = 2.5;
+    const S = 3;
     const out = document.createElement("canvas");
-    out.width  = Math.floor(sw * SCALE);
-    out.height = Math.floor(ch * SCALE);
+    out.width = sw * S; out.height = ch * S;
     const ctx = out.getContext("2d");
     ctx.drawImage(canvas, 0, cy, sw, ch, 0, 0, out.width, out.height);
     const img = ctx.getImageData(0, 0, out.width, out.height);
     const d = img.data;
     for (let i = 0; i < d.length; i += 4) {
-      // Kulrang + keskin kontrast
       const g = 0.299 * d[i] + 0.587 * d[i+1] + 0.114 * d[i+2];
-      const v = g < 90  ? Math.max(0,   g - 30)
-              : g > 170 ? Math.min(255, g + 40)
-              : Math.round((g - 90) / 80 * 255);
+      // Kuchli kontrast: quyuq → yanada quyuq, yorug' → yanada yorug'
+      const v = g < 110 ? Math.max(0, g * 0.45)
+              : g > 155 ? Math.min(255, g * 1.25 + 15)
+              : Math.round((g - 110) / 45 * 255);
       d[i] = d[i+1] = d[i+2] = v;
     }
     ctx.putImageData(img, 0, 0);
-    return out.toDataURL("image/png"); // PNG — JPEG dan aniqroq
+    return out.toDataURL("image/png");
+  };
+
+  // JSHSHIR formatini tekshirish (O'zbekiston standarti)
+  const isValidJshshir = n => {
+    if (!/^[1-6]\d{13}$/.test(n)) return false;
+    const mm = +n.slice(3, 5), dd = +n.slice(5, 7);
+    return mm >= 1 && mm <= 12 && dd >= 1 && dd <= 31;
   };
 
   const tryFind = text => {
-    // "Personal number" yonidan qidirish
     const kw = text.match(/(?:personal\s*number|shaxsiy\s*raqam)[^\d]*(\d{14})/i);
-    if (kw) return kw[1];
-    // MRZ qatorlarini (faqat KATTA HARF + raqam + <) olib tashlab qidirish
-    const noMrz = text.split("\n")
-      .filter(l => !(/^[A-Z0-9<]{10,}$/).test(l.trim()))
-      .join(" ");
-    const hits = [...noMrz.replace(/\s/g, "").matchAll(/[1-6]\d{13}/g)];
-    return hits.length ? hits[0][0] : null;
+    if (kw && isValidJshshir(kw[1])) return kw[1];
+    const hits = [...text.replace(/\D/g, "").matchAll(/[1-6]\d{13}/g)]
+      .map(m => m[0]).filter(isValidJshshir);
+    return hits[0] || null;
   };
 
   // MRZ: "ADXAMJONOV<<DOSTONBEK<<<" → "Dostonbek Adxamjonov"
   const parseName = text => {
     const cap = s => s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
-    // To'liq MRZ qator
-    const m = text.replace(/\s/g, "").match(/([A-Z]{2,})<<([A-Z]{2,})/);
+    const t = text.replace(/\s/g, "");
+    const m = t.match(/([A-Z]{2,30})<<([A-Z]{2,30})/);
     if (m) return `${cap(m[2])} ${cap(m[1])}`;
-    // Qisman o'qilgan holat
-    const m2 = text.match(/([A-Z]{3,})\s*<<+\s*([A-Z]{3,})/);
-    if (m2) return `${cap(m2[2])} ${cap(m2[1])}`;
     return null;
   };
+
+  // 2 ta alohida worker: biri faqat raqam, biri faqat harf o'qiydi
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const [w1, w2] = await Promise.all([
+          Tesseract.createWorker("eng"),
+          Tesseract.createWorker("eng"),
+        ]);
+        await Promise.all([
+          w1.setParameters({ tessedit_char_whitelist: "0123456789" }),
+          w2.setParameters({ tessedit_char_whitelist: "ABCDEFGHIJKLMNOPQRSTUVWXYZ<" }),
+        ]);
+        if (!alive) { w1.terminate(); w2.terminate(); return; }
+        wDigit.current = w1;
+        wText.current  = w2;
+        setReady(true);
+        setStatus("Pasportni kameraga tutib turing...");
+      } catch {
+        if (alive) setReady(true);
+      }
+    })();
+    return () => {
+      alive = false;
+      wDigit.current?.terminate();
+      wText.current?.terminate();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!ready) return;
+    navigator.mediaDevices.getUserMedia({
+      video: { facingMode: "environment", width: { ideal: 1920 }, height: { ideal: 1080 } }
+    }).then(s => {
+      streamRef.current = s;
+      setTimeout(() => { if (vRef.current) vRef.current.srcObject = s; }, 100);
+      setActive(true);
+    }).catch(() => setStatus("❌ Kamera ruxsati berilmadi!"));
+    return () => streamRef.current?.getTracks().forEach(t => t.stop());
+  }, [ready]);
 
   const scanFrame = async () => {
     if (busyRef.current || foundRef.current) return;
@@ -95,90 +155,103 @@ function PassportScanner({ onFound }) {
     busyRef.current = true;
     c.width = v.videoWidth; c.height = v.videoHeight;
     c.getContext("2d").drawImage(v, 0, 0);
-    const photoUrl = c.toDataURL("image/jpeg", 0.8);
+    const photoUrl = c.toDataURL("image/jpeg", 0.85);
+    scanCount.current++;
+    setStatus(`🔍 Skanerlanmoqda... (${scanCount.current}-urinish)`);
     try {
-      // Yuqori 65% → JSHSHIR,  Pastki 40% → Ism (MRZ) — parallel
-      const [topR, botR] = await Promise.all([
-        Tesseract.recognize(enhanceImg(c, 0,    0.65), "eng"),
-        Tesseract.recognize(enhanceImg(c, 0.58, 1.0),  "eng"),
+      const recognize = wDigit.current
+        ? (img, w) => w.recognize(img)
+        : (img)    => Tesseract.recognize(img, "eng");
+
+      const [r1, r2] = await Promise.all([
+        wDigit.current
+          ? wDigit.current.recognize(enhance(c, 0,    0.65))
+          : Tesseract.recognize(enhance(c, 0, 0.65), "eng"),
+        wText.current
+          ? wText.current.recognize(enhance(c, 0.58, 1.0))
+          : Tesseract.recognize(enhance(c, 0.58, 1.0), "eng"),
       ]);
-      const jshshir = tryFind(topR.data.text);
+
+      const jshshir = tryFind(r1.data.text);
       if (jshshir) {
-        const fullName = parseName(botR.data.text);
+        const fullName = parseName(r2.data.text);
         foundRef.current = true;
+        playSuccess();
         setPulse(true);
         streamRef.current?.getTracks().forEach(t => t.stop());
-        setTimeout(() => onFound(jshshir, fullName, photoUrl), 400);
+        setTimeout(() => onFound(jshshir, fullName, photoUrl), 500);
         return;
       }
-      setStatus("Pasportni yaqinroq va to'g'ri tutib turing...");
+      setStatus(`📄 Pasportni to'g'ri tuting... (${scanCount.current}-urinish)`);
     } catch {}
     busyRef.current = false;
   };
 
   useEffect(() => {
-    navigator.mediaDevices.getUserMedia({
-      video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 } }
-    }).then(s => {
-      streamRef.current = s;
-      setTimeout(() => { if (vRef.current) vRef.current.srcObject = s; }, 100);
-      setActive(true);
-      setStatus("Pasportni kameraga tutib turing — o'zi topadi");
-    }).catch(() => setStatus("Kamera ruxsati berilmadi!"));
-    return () => streamRef.current?.getTracks().forEach(t => t.stop());
-  }, []);
-
-  useEffect(() => {
     if (!active) return;
-    const id = setInterval(scanFrame, 1800);
+    const id = setInterval(scanFrame, 1500);
     return () => clearInterval(id);
   }, [active]);
 
   return (
     <div>
-      <div style={{ position: "relative", borderRadius: 16, overflow: "hidden", background: "#000" }}>
-        <video ref={vRef} autoPlay playsInline muted style={{ width: "100%", display: "block", maxHeight: 260, objectFit: "cover" }} />
+      <div style={{ position: "relative", borderRadius: 16, overflow: "hidden", background: "#000", minHeight: 180 }}>
+        {!ready && (
+          <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column",
+            alignItems: "center", justifyContent: "center", gap: 12, background: "#0a0f1a" }}>
+            <div style={{ width: 32, height: 32, border: "3px solid #6366f1",
+              borderTopColor: "transparent", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
+            <span style={{ color: "#6366f1", fontSize: 13, fontWeight: 600 }}>OCR tayyorlanmoqda...</span>
+          </div>
+        )}
+        <video ref={vRef} autoPlay playsInline muted
+          style={{ width: "100%", display: "block", maxHeight: 260, objectFit: "cover",
+            opacity: ready ? 1 : 0 }} />
 
-        {/* scan line animation */}
+        {/* harakatlanuvchi skaner chizig'i */}
         {active && !pulse && (
-          <div style={{ position: "absolute", left: 0, right: 0, height: 3,
-            background: "linear-gradient(90deg, transparent, #6366f1, #a855f7, #6366f1, transparent)",
-            animation: "scanLine 2s ease-in-out infinite", boxShadow: "0 0 12px rgba(99,102,241,0.8)" }} />
+          <div style={{ position: "absolute", left: "5%", right: "5%", height: 3, borderRadius: 2,
+            background: "linear-gradient(90deg,transparent,#6366f1,#a855f7,#6366f1,transparent)",
+            animation: "scanLine 1.8s ease-in-out infinite",
+            boxShadow: "0 0 14px rgba(139,92,246,0.9)" }} />
         )}
 
-        {/* success pulse */}
+        {/* muvaffaqiyat yanishi */}
         {pulse && (
-          <div style={{ position: "absolute", inset: 0, background: "rgba(16,185,129,0.25)",
-            animation: "pulseFade 0.4s ease-out", display: "flex", alignItems: "center",
-            justifyContent: "center" }}>
-            <div style={{ fontSize: 64 }}>✅</div>
+          <div style={{ position: "absolute", inset: 0, background: "rgba(16,185,129,0.3)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            animation: "pulseFade 0.5s ease-out" }}>
+            <div style={{ fontSize: 70, animation: "popIn 0.4s ease" }}>✅</div>
           </div>
         )}
 
-        {/* corner brackets */}
-        {[[{top:10,left:10},{borderTop:"3px solid #6366f1",borderLeft:"3px solid #6366f1"}],
-          [{top:10,right:10},{borderTop:"3px solid #6366f1",borderRight:"3px solid #6366f1"}],
-          [{bottom:10,left:10},{borderBottom:"3px solid #6366f1",borderLeft:"3px solid #6366f1"}],
-          [{bottom:10,right:10},{borderBottom:"3px solid #6366f1",borderRight:"3px solid #6366f1"}]
+        {/* burchak belgilari */}
+        {[[{top:10,left:10},{borderTop:"3px solid #818cf8",borderLeft:"3px solid #818cf8"}],
+          [{top:10,right:10},{borderTop:"3px solid #818cf8",borderRight:"3px solid #818cf8"}],
+          [{bottom:10,left:10},{borderBottom:"3px solid #818cf8",borderLeft:"3px solid #818cf8"}],
+          [{bottom:10,right:10},{borderBottom:"3px solid #818cf8",borderRight:"3px solid #818cf8"}]
         ].map(([pos, border], i) => (
-          <div key={i} style={{ position: "absolute", width: 26, height: 26, borderRadius: 3, ...pos, ...border, pointerEvents: "none" }} />
+          <div key={i} style={{ position:"absolute", width:28, height:28,
+            borderRadius:3, pointerEvents:"none", ...pos, ...border }} />
         ))}
       </div>
       <canvas ref={canvasRef} style={{ display: "none" }} />
-      <div style={{ marginTop: 8, padding: "10px 14px", background: "rgba(99,102,241,0.08)",
-        border: "1.5px solid rgba(99,102,241,0.18)", borderRadius: 12,
-        display: "flex", alignItems: "center", gap: 10 }}>
-        <div style={{ width: 14, height: 14, border: "2.5px solid #6366f1",
+      <div style={{ marginTop: 8, padding: "10px 14px",
+        background: pulse ? "rgba(16,185,129,0.1)" : "rgba(99,102,241,0.08)",
+        border: `1.5px solid ${pulse ? "rgba(16,185,129,0.3)" : "rgba(99,102,241,0.18)"}`,
+        borderRadius: 12, display: "flex", alignItems: "center", gap: 10,
+        transition: "all 0.3s" }}>
+        <div style={{ width: 14, height: 14, border: `2.5px solid ${pulse ? "#10b981" : "#6366f1"}`,
           borderTopColor: "transparent", borderRadius: "50%",
           animation: "spin 0.8s linear infinite", flexShrink: 0 }} />
-        <span style={{ color: "#818cf8", fontSize: 12, fontWeight: 600 }}>{status}</span>
+        <span style={{ color: pulse ? "#10b981" : "#818cf8", fontSize: 12, fontWeight: 600 }}>{status}</span>
       </div>
       <style>{`
-        @keyframes scanLine { 0%{top:8%} 50%{top:82%} 100%{top:8%} }
-        @keyframes spin     { to{transform:rotate(360deg)} }
-        @keyframes pulseFade{ 0%{opacity:1} 100%{opacity:0} }
-        @keyframes slideUp  { from{opacity:0;transform:translateY(20px)} to{opacity:1;transform:none} }
-        @keyframes popIn    { 0%{transform:scale(0.5);opacity:0} 70%{transform:scale(1.1)} 100%{transform:scale(1);opacity:1} }
+        @keyframes scanLine  { 0%{top:8%}  50%{top:82%} 100%{top:8%} }
+        @keyframes spin      { to{transform:rotate(360deg)} }
+        @keyframes pulseFade { 0%{opacity:1} 100%{opacity:0} }
+        @keyframes slideUp   { from{opacity:0;transform:translateY(20px)} to{opacity:1;transform:none} }
+        @keyframes popIn     { 0%{transform:scale(0.4);opacity:0} 70%{transform:scale(1.15)} 100%{transform:scale(1);opacity:1} }
       `}</style>
     </div>
   );
