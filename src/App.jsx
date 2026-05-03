@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import Tesseract from "tesseract.js";
 import { parse as parseMrzLib } from "mrz";
 
+// ─── Ma'lumotlar ──────────────────────────────────────────────────────────────
 const MFY_LIST = [
   "O'zbekiston MFY","Namozgoh MFY","Mustaqillik MFY","Taraqqiyot MFY","Teraktashi MFY","Poloson MFY",
   "Ahmadbek (Barkamolavlod)","Kalacha MFY","Do'lan MFY","Yangimahalla Y.Sh","Tumor MFY","Sohibobod MFY",
@@ -25,853 +26,738 @@ const USERS = {
   hodim3: { password: "1234",     role: "hodim",   name: "Hodim Jasur" },
 };
 
-const fmt     = d => new Date(d).toLocaleTimeString("uz-UZ",  { hour: "2-digit", minute: "2-digit" });
-const fmtDate = d => new Date(d).toLocaleDateString("uz-UZ",  { day: "2-digit", month: "2-digit", year: "numeric" });
+const fmt     = d => new Date(d).toLocaleTimeString("uz-UZ", { hour:"2-digit", minute:"2-digit" });
+const fmtDate = d => new Date(d).toLocaleDateString("uz-UZ", { day:"2-digit", month:"2-digit", year:"numeric" });
 const todayStr = () => fmtDate(new Date());
 
-// ─── PassportScanner ───────────────────────────────────────────────────────────
+// ─── Ovoz ────────────────────────────────────────────────────────────────────
+const playBeep = () => {
+  try {
+    const ac = new (window.AudioContext || window.webkitAudioContext)();
+    [[523,0,0.12],[659,0.13,0.12],[784,0.26,0.22]].forEach(([f,t,d]) => {
+      const o = ac.createOscillator(), g = ac.createGain();
+      o.connect(g); g.connect(ac.destination);
+      o.frequency.value = f; o.type = "sine";
+      g.gain.setValueAtTime(0.4, ac.currentTime+t);
+      g.gain.exponentialRampToValueAtTime(0.001, ac.currentTime+t+d);
+      o.start(ac.currentTime+t); o.stop(ac.currentTime+t+d+0.05);
+    });
+  } catch {}
+};
+
+// ─── Rasm ishlash ─────────────────────────────────────────────────────────────
+// Sharpen filter (3×3 konvolyutsiya) — xira rasmlar uchun
+const applySharpen = (ctx, w, h) => {
+  const src = ctx.getImageData(0, 0, w, h);
+  const dst = new ImageData(w, h);
+  const s = src.data, d = dst.data;
+  const K = [0,-1,0,-1,5,-1,0,-1,0];
+  for (let y = 1; y < h-1; y++) {
+    for (let x = 1; x < w-1; x++) {
+      for (let c = 0; c < 3; c++) {
+        let v = 0;
+        for (let ky=-1; ky<=1; ky++)
+          for (let kx=-1; kx<=1; kx++)
+            v += s[((y+ky)*w+(x+kx))*4+c] * K[(ky+1)*3+(kx+1)];
+        d[(y*w+x)*4+c] = Math.min(255, Math.max(0, v));
+      }
+      d[(y*w+x)*4+3] = 255;
+    }
+  }
+  ctx.putImageData(dst, 0, 0);
+};
+
+// Aniqlik o'lchash (Laplacian variance) — xira kadrlarni o'tkazib yuborish
+const sharpness = canvas => {
+  const ctx = canvas.getContext("2d");
+  const { width: w, height: h } = canvas;
+  const d = ctx.getImageData(Math.floor(w*0.25), Math.floor(h*0.25),
+                              Math.floor(w*0.5),  Math.floor(h*0.5)).data;
+  let s = 0;
+  const W = Math.floor(w*0.5), H = Math.floor(h*0.5);
+  for (let y=1; y<H-1; y++) {
+    for (let x=1; x<W-1; x++) {
+      const i=(y*W+x)*4;
+      const g = p => 0.299*d[p]+0.587*d[p+1]+0.114*d[p+2];
+      const l = Math.abs(4*g(i)-g(i-4)-g(i+4)-g((y-1)*W*4+x*4)-g((y+1)*W*4+x*4));
+      s += l;
+    }
+  }
+  return s / (W*H);
+};
+
+// Rasm: crop + zoom + kulrang + kontrast + sharpen
+const enhance = (canvas, y0, y1) => {
+  const sw=canvas.width, sh=canvas.height;
+  const cy=Math.floor(sh*y0), ch=Math.floor(sh*(y1-y0));
+  const S=3;
+  const out=document.createElement("canvas");
+  out.width=sw*S; out.height=ch*S;
+  const ctx=out.getContext("2d");
+  ctx.drawImage(canvas, 0,cy,sw,ch, 0,0,out.width,out.height);
+  // Kulrang + kontrast
+  const img=ctx.getImageData(0,0,out.width,out.height), d=img.data;
+  for (let i=0;i<d.length;i+=4) {
+    const g=0.299*d[i]+0.587*d[i+1]+0.114*d[i+2];
+    const v=g<105?Math.max(0,g*0.4):g>160?Math.min(255,g*1.3+15):(g-105)/55*255;
+    d[i]=d[i+1]=d[i+2]=Math.round(v);
+  }
+  ctx.putImageData(img,0,0);
+  // Sharpen (xira uchun)
+  applySharpen(ctx, out.width, out.height);
+  return out.toDataURL("image/png");
+};
+
+// ─── JSHSHIR yordamchi ────────────────────────────────────────────────────────
+const isValidJ = n => {
+  if (!/^[1-6]\d{13}$/.test(n)) return false;
+  const mm=+n.slice(3,5), dd=+n.slice(5,7);
+  return mm>=1&&mm<=12&&dd>=1&&dd<=31;
+};
+const capName = s => s?s.charAt(0).toUpperCase()+s.slice(1).toLowerCase():"";
+
+// ─── PassportScanner ──────────────────────────────────────────────────────────
 function PassportScanner({ onFound }) {
-  const vRef      = useRef(null);
-  const canvasRef = useRef(null);
-  const streamRef = useRef(null);
-  const captureRef= useRef(null); // ImageCapture API
-  const busyRef   = useRef(false);
-  const foundRef  = useRef(false);
-  const wMrz      = useRef(null); // MRZ uchun worker (raqam+harf+<)
-  const scanCount = useRef(0);
-  const [status, setStatus] = useState("⏳ Tayyorlanmoqda...");
-  const [active, setActive] = useState(false);
-  const [pulse, setPulse]   = useState(false);
-  const [ready, setReady]   = useState(false);
+  const vRef    = useRef(null);
+  const cRef    = useRef(null);
+  const strmRef = useRef(null);
+  const capRef  = useRef(null);
+  const wRef    = useRef(null);
+  const busy    = useRef(false);
+  const done    = useRef(false);
+  const tries   = useRef(0);
+  const [status,  setStatus]  = useState("⏳ Kamera tayyorlanmoqda...");
+  const [active,  setActive]  = useState(false);
+  const [pulse,   setPulse]   = useState(false);
+  const [ready,   setReady]   = useState(false);
+  const [torch,   setTorch]   = useState(false);
+  const [torchOk, setTorchOk] = useState(false);
 
-  // Muvaffaqiyat ovozi — Do-Mi-Sol akkord
-  const playSuccess = () => {
-    try {
-      const ac = new (window.AudioContext || window.webkitAudioContext)();
-      [[523,0,0.13],[659,0.14,0.13],[784,0.28,0.28]].forEach(([freq,t,dur]) => {
-        const osc = ac.createOscillator(), gain = ac.createGain();
-        osc.connect(gain); gain.connect(ac.destination);
-        osc.frequency.value = freq; osc.type = "sine";
-        gain.gain.setValueAtTime(0.4, ac.currentTime + t);
-        gain.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + t + dur);
-        osc.start(ac.currentTime + t);
-        osc.stop(ac.currentTime + t + dur + 0.05);
-      });
-    } catch {}
-  };
+  // ── Ovoz ──
+  const playSuccess = playBeep;
 
-  const isValidJshshir = n => {
-    if (!/^[1-6]\d{13}$/.test(n)) return false;
-    const mm = +n.slice(3, 5), dd = +n.slice(5, 7);
-    return mm >= 1 && mm <= 12 && dd >= 1 && dd <= 31;
-  };
-
-  const cap = s => s ? s.charAt(0).toUpperCase() + s.slice(1).toLowerCase() : "";
-
-  // ── 1-QATLAM: QR kod (BarcodeDetector — OCR siz, bir zumda) ──
-  const tryQR = async videoEl => {
+  // ── QR kod (BarcodeDetector) ──
+  const tryQR = async v => {
     if (!("BarcodeDetector" in window)) return null;
     try {
-      const det = new window.BarcodeDetector({ formats: ["qr_code","aztec","data_matrix","pdf417"] });
-      const codes = await det.detect(videoEl);
-      for (const code of codes) {
-        const raw = code.rawValue || "";
-        // JSHSHIR ni QR ichidan qidirish
-        const hits = [...raw.matchAll(/\d{14}/g)].map(m => m[0]).filter(isValidJshshir);
-        if (hits.length) return { jshshir: hits[0], name: null };
+      const det = new window.BarcodeDetector({ formats:["qr_code","pdf417","data_matrix"] });
+      for (const code of await det.detect(v)) {
+        const hits=[...code.rawValue.matchAll(/\d{14}/g)].map(m=>m[0]).filter(isValidJ);
+        if (hits.length) return { j:hits[0], name:null };
       }
     } catch {}
     return null;
   };
 
-  // ── 2-QATLAM: mrz library bilan to'g'ri MRZ parse ──
-  const tryMrzLib = (lines) => {
-    try {
-      const clean = lines.map(l => l.replace(/[^A-Z0-9<]/g, "").trim()).filter(l => l.length >= 20);
-      // TD1 (ID karta): 3 ta qator × 30 belgi
-      const td1 = clean.filter(l => l.length >= 28 && l.length <= 32);
-      if (td1.length >= 3) {
-        const res = parseMrzLib([td1[0].slice(0,30).padEnd(30,"<"), td1[1].slice(0,30).padEnd(30,"<"), td1[2].slice(0,30).padEnd(30,"<")]);
-        if (res?.fields) {
-          const j = res.fields.personalNumber?.replace(/</g,"");
-          const n = res.fields.firstName && res.fields.lastName
-            ? `${cap(res.fields.firstName.split("<")[0])} ${cap(res.fields.lastName)}`
-            : null;
-          if (j && isValidJshshir(j)) return { jshshir: j, name: n };
-        }
-      }
-      // TD3 (zagranpassport): 2 ta qator × 44 belgi
-      const td3 = clean.filter(l => l.length >= 40 && l.length <= 48);
-      if (td3.length >= 2) {
-        const res = parseMrzLib([td3[0].slice(0,44).padEnd(44,"<"), td3[1].slice(0,44).padEnd(44,"<")]);
-        if (res?.fields) {
-          const j = res.fields.personalNumber?.replace(/</g,"");
-          const n = res.fields.firstName && res.fields.lastName
-            ? `${cap(res.fields.firstName.split("<")[0])} ${cap(res.fields.lastName)}`
-            : null;
-          if (j && isValidJshshir(j)) return { jshshir: j, name: n };
-        }
-      }
-    } catch {}
-    return null;
-  };
-
-  // ── 3-QATLAM: Qo'lda MRZ parse (zaxira) ──
-  const tryManualMrz = lines => {
-    const clean = lines.map(l => l.replace(/[^A-Z0-9<]/g,"").trim()).filter(l => l.length >= 20);
-    let jshshir = null, name = null;
-    for (const line of clean) {
-      if (!jshshir) {
-        // TD1: pozitsiya 15-28
-        const c1 = line.slice(15, 29).replace(/</g,"");
-        if (/^\d{14}$/.test(c1) && isValidJshshir(c1)) { jshshir = c1; continue; }
-        // TD3: pozitsiya 28-41
-        const c2 = line.slice(28, 42).replace(/</g,"");
-        if (/^\d{14}$/.test(c2) && isValidJshshir(c2)) { jshshir = c2; continue; }
-        // Istalgan joydan
-        const hits = [...line.matchAll(/\d{14}/g)].map(m=>m[0]).filter(isValidJshshir);
-        if (hits.length) jshshir = hits[0];
-      }
-      if (!name) {
-        const m = line.match(/([A-Z]{2,30})<<([A-Z]{2,30})/);
-        if (m) name = `${cap(m[2])} ${cap(m[1])}`;
-      }
-    }
-    return { jshshir, name };
-  };
-
-  // ── Rasm yaxshilash: to'g'ri crop, 3x zoom, kontrast ──
-  const enhance = (src, yStart, yEnd) => {
-    const sw = src.width, sh = src.height;
-    const cy = Math.floor(sh * yStart), ch = Math.floor(sh * (yEnd - yStart));
-    const S = 3;
-    const out = document.createElement("canvas");
-    out.width = sw * S; out.height = ch * S;
-    const ctx = out.getContext("2d");
-    ctx.drawImage(src, 0, cy, sw, ch, 0, 0, out.width, out.height);
-    const img = ctx.getImageData(0, 0, out.width, out.height);
-    const d = img.data;
-    for (let i = 0; i < d.length; i += 4) {
-      const g = 0.299*d[i] + 0.587*d[i+1] + 0.114*d[i+2];
-      const v = g < 110 ? Math.max(0, g*0.4) : g > 155 ? Math.min(255, g*1.3+15) : (g-110)/45*255;
-      d[i] = d[i+1] = d[i+2] = Math.round(v);
-    }
-    ctx.putImageData(img, 0, 0);
-    return out.toDataURL("image/png");
-  };
-
-  // MRZ worker tayorlash (bitta, to'liq belgilar)
-  useEffect(() => {
-    let alive = true;
-    Tesseract.createWorker("eng").then(async w => {
-      try { await w.setParameters({ tessedit_char_whitelist: "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789<" }); } catch {}
-      if (!alive) { w.terminate(); return; }
-      wMrz.current = w;
-      setReady(true);
-      setStatus("Pasportni kameraga tutib turing...");
-    }).catch(() => { if (alive) { setReady(true); setStatus("Pasportni kameraga tutib turing..."); } });
-    return () => { alive = false; wMrz.current?.terminate(); };
-  }, []);
-
-  useEffect(() => {
-    if (!ready) return;
-    navigator.mediaDevices.getUserMedia({
-      video: { facingMode: "environment", width: { ideal: 1920 }, height: { ideal: 1080 } }
-    }).then(s => {
-      streamRef.current = s;
-      // ImageCapture API — kamera full rasm uchun
-      const track = s.getVideoTracks()[0];
-      if ("ImageCapture" in window) captureRef.current = new window.ImageCapture(track);
-      setTimeout(() => { if (vRef.current) vRef.current.srcObject = s; }, 100);
-      setActive(true);
-    }).catch(() => setStatus("❌ Kamera ruxsati berilmadi!"));
-    return () => streamRef.current?.getTracks().forEach(t => t.stop());
-  }, [ready]);
-
-  const getHighResFrame = async () => {
-    // ImageCapture bilan yuqori sifatli rasm
-    if (captureRef.current) {
+  // ── MRZ library parse ──
+  const tryMrz = text => {
+    const lines = text.split("\n")
+      .map(l=>l.replace(/[^A-Z0-9<]/g,"").trim())
+      .filter(l=>l.length>=20);
+    const getName = r => {
+      if (!r?.fields?.firstName) return null;
+      return `${capName(r.fields.firstName.split("<")[0])} ${capName(r.fields.lastName||"")}`.trim();
+    };
+    // TD1 — ID karta
+    const td1 = lines.filter(l=>l.length>=28&&l.length<=32);
+    if (td1.length>=3) {
       try {
-        const blob = await captureRef.current.takePhoto();
-        return new Promise(resolve => {
-          const img = new Image();
-          img.onload = () => {
-            const c = document.createElement("canvas");
-            c.width = img.width; c.height = img.height;
-            c.getContext("2d").drawImage(img, 0, 0);
-            resolve(c);
+        const r = parseMrzLib([td1[0].slice(0,30).padEnd(30,"<"),td1[1].slice(0,30).padEnd(30,"<"),td1[2].slice(0,30).padEnd(30,"<")]);
+        const j = r?.fields?.personalNumber?.replace(/</g,"");
+        if (j&&isValidJ(j)) return { j, name:getName(r) };
+      } catch {}
+    }
+    // TD3 — Zagranpassport
+    const td3 = lines.filter(l=>l.length>=40&&l.length<=48);
+    if (td3.length>=2) {
+      try {
+        const r = parseMrzLib([td3[0].slice(0,44).padEnd(44,"<"),td3[1].slice(0,44).padEnd(44,"<")]);
+        const j = r?.fields?.personalNumber?.replace(/</g,"");
+        if (j&&isValidJ(j)) return { j, name:getName(r) };
+      } catch {}
+    }
+    // Qo'lda
+    for (const line of lines) {
+      const hits=[...line.matchAll(/\d{14}/g)].map(m=>m[0]).filter(isValidJ);
+      if (hits.length) {
+        const m=line.match(/([A-Z]{2,})<<([A-Z]{2,})/);
+        return { j:hits[0], name:m?`${capName(m[2])} ${capName(m[1])}`:null };
+      }
+    }
+    return null;
+  };
+
+  // ── Torch ──
+  const toggleTorch = async () => {
+    const track = strmRef.current?.getVideoTracks()[0];
+    if (!track) return;
+    const newVal = !torch;
+    try { await track.applyConstraints({ advanced:[{ torch:newVal }] }); setTorch(newVal); } catch {}
+  };
+
+  // ── Worker init ──
+  useEffect(() => {
+    let alive=true;
+    Tesseract.createWorker("eng").then(async w => {
+      try { await w.setParameters({ tessedit_char_whitelist:"ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789<" }); } catch {}
+      if (!alive){w.terminate();return;}
+      wRef.current=w; setReady(true); setStatus("Hujjatni kameraga tuting...");
+    }).catch(()=>{ if(alive){setReady(true);setStatus("Hujjatni kameraga tuting...");} });
+    return ()=>{ alive=false; wRef.current?.terminate(); };
+  },[]);
+
+  // ── Kamera ──
+  useEffect(()=>{
+    if(!ready) return;
+    navigator.mediaDevices.getUserMedia({
+      video:{
+        facingMode:{ideal:"environment"},
+        width:{ideal:1920,min:1280}, height:{ideal:1080,min:720},
+        advanced:[{focusMode:"continuous",exposureMode:"continuous",whiteBalanceMode:"continuous"}]
+      }
+    }).then(s=>{
+      strmRef.current=s;
+      const track=s.getVideoTracks()[0];
+      if("ImageCapture" in window) capRef.current=new window.ImageCapture(track);
+      const caps=track.getCapabilities?.();
+      if(caps?.torch) setTorchOk(true);
+      setTimeout(()=>{ if(vRef.current) vRef.current.srcObject=s; },100);
+      setActive(true);
+    }).catch(()=>setStatus("❌ Kamera ruxsati berilmadi!"));
+    return ()=>strmRef.current?.getTracks().forEach(t=>t.stop());
+  },[ready]);
+
+  // ── Yuqori sifatli kadr ──
+  const getFrame = async () => {
+    if(capRef.current){
+      try{
+        const blob=await capRef.current.takePhoto();
+        return new Promise(res=>{
+          const img=new Image();
+          img.onload=()=>{
+            const c=document.createElement("canvas");
+            c.width=img.width; c.height=img.height;
+            c.getContext("2d").drawImage(img,0,0);
+            res(c);
           };
-          img.src = URL.createObjectURL(blob);
+          img.src=URL.createObjectURL(blob);
         });
       } catch {}
     }
-    // Zaxira: video kadrdan
-    const v = vRef.current, c = canvasRef.current;
-    if (!v || !c) return null;
-    c.width = v.videoWidth; c.height = v.videoHeight;
-    c.getContext("2d").drawImage(v, 0, 0);
+    const v=vRef.current, c=cRef.current;
+    if(!v||!c) return null;
+    c.width=v.videoWidth; c.height=v.videoHeight;
+    c.getContext("2d").drawImage(v,0,0);
     return c;
   };
 
-  const scanFrame = async () => {
-    if (busyRef.current || foundRef.current) return;
-    const v = vRef.current;
-    if (!v || v.readyState < 2) return;
-    busyRef.current = true;
-    scanCount.current++;
-    setStatus(`🔍 ${scanCount.current}-urinish...`);
+  // ── Asosiy skaner ──
+  const scan = async () => {
+    if(busy.current||done.current) return;
+    const v=vRef.current;
+    if(!v||v.readyState<2) return;
+    busy.current=true;
+    tries.current++;
+    setStatus(`🔍 Skanerlanmoqda... (${tries.current}-urinish)`);
 
     try {
-      // 1) QR kod — eng tez (OCR siz)
-      const qrResult = await tryQR(v);
-      if (qrResult?.jshshir) {
-        await finish(qrResult.jshshir, qrResult.name, "QR");
-        return;
-      }
+      // 1) QR kod — eng tez
+      const qr=await tryQR(v);
+      if(qr?.j){ finish(qr.j,qr.name,null); return; }
 
       // Yuqori sifatli kadr
-      const canvas = await getHighResFrame();
-      if (!canvas) { busyRef.current = false; return; }
-      const photoUrl = canvas.toDataURL("image/jpeg", 0.88);
+      const canvas=await getFrame();
+      if(!canvas){ busy.current=false; return; }
 
-      // 2) MRZ OCR (pastki qism)
-      const mrzImg = enhance(canvas, 0.55, 1.0);
-      const recog  = wMrz.current
-        ? await wMrz.current.recognize(mrzImg)
-        : await Tesseract.recognize(mrzImg, "eng");
-      const mrzLines = recog.data.text.split("\n");
+      // Aniqlik tekshiruv — xira kadrni o'tkazib yuborish
+      const sh=sharpness(canvas);
+      if(sh<8&&tries.current<5){ setStatus(`📷 Kamerani tekis tuting... (${tries.current})`); busy.current=false; return; }
 
-      // mrz library bilan parse
-      const libResult = tryMrzLib(mrzLines);
-      if (libResult?.jshshir) {
-        await finish(libResult.jshshir, libResult.name, "MRZ", photoUrl);
-        return;
-      }
+      const photo=canvas.toDataURL("image/jpeg",0.9);
 
-      // 3) Qo'lda parse (zaxira)
-      const manResult = tryManualMrz(mrzLines);
-      if (manResult?.jshshir) {
-        await finish(manResult.jshshir, manResult.name, "fallback", photoUrl);
-        return;
-      }
+      // 2) MRZ OCR (pastki 45%)
+      const mrzImg=enhance(canvas,0.55,1.0);
+      const rec=wRef.current
+        ? await wRef.current.recognize(mrzImg)
+        : await Tesseract.recognize(mrzImg,"eng");
+      const mrz=tryMrz(rec.data.text);
+      if(mrz?.j){ finish(mrz.j,mrz.name,photo); return; }
 
-      setStatus(`📄 Pasportni to'g'ri va yaqin tutib turing... (${scanCount.current})`);
+      setStatus(`📄 Pasportni yaqinroq va tekis tuting... (${tries.current})`);
     } catch {}
-    busyRef.current = false;
+    busy.current=false;
   };
 
-  const finish = async (jshshir, name, src, photoUrl) => {
-    foundRef.current = true;
-    playSuccess();
-    setPulse(true);
-    streamRef.current?.getTracks().forEach(t => t.stop());
-    // photoUrl yo'q bo'lsa video kadrdan olamiz
-    if (!photoUrl) {
-      const v = vRef.current, c = canvasRef.current;
-      if (v && c) { c.width = v.videoWidth; c.height = v.videoHeight; c.getContext("2d").drawImage(v,0,0); photoUrl = c.toDataURL("image/jpeg",0.85); }
-    }
-    setTimeout(() => onFound(jshshir, name, photoUrl), 500);
+  const finish = (j,name,photo) => {
+    done.current=true; playSuccess(); setPulse(true);
+    strmRef.current?.getTracks().forEach(t=>t.stop());
+    if(!photo){ const v=vRef.current,c=cRef.current; if(v&&c){c.width=v.videoWidth;c.height=v.videoHeight;c.getContext("2d").drawImage(v,0,0);photo=c.toDataURL("image/jpeg",0.88);} }
+    setTimeout(()=>onFound(j,name,photo),500);
   };
 
-  useEffect(() => {
-    if (!active) return;
-    const id = setInterval(scanFrame, 1800);
-    return () => clearInterval(id);
-  }, [active]);
+  useEffect(()=>{
+    if(!active) return;
+    const id=setInterval(scan,1800);
+    return ()=>clearInterval(id);
+  },[active]);
 
   return (
     <div>
-      <div style={{ position: "relative", borderRadius: 16, overflow: "hidden", background: "#000", minHeight: 180 }}>
-        {!ready && (
-          <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column",
-            alignItems: "center", justifyContent: "center", gap: 12, background: "#0a0f1a" }}>
-            <div style={{ width: 32, height: 32, border: "3px solid #6366f1",
-              borderTopColor: "transparent", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
-            <span style={{ color: "#6366f1", fontSize: 13, fontWeight: 600 }}>OCR tayyorlanmoqda...</span>
+      <div style={{position:"relative",borderRadius:16,overflow:"hidden",background:"#000",minHeight:200}}>
+        {!ready&&(
+          <div style={{position:"absolute",inset:0,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:12,background:"#0b1220"}}>
+            <div style={{width:36,height:36,border:"3px solid #6366f1",borderTopColor:"transparent",borderRadius:"50%",animation:"spin .8s linear infinite"}}/>
+            <span style={{color:"#6366f1",fontSize:13,fontWeight:600}}>OCR yuklanmoqda...</span>
           </div>
         )}
-        <video ref={vRef} autoPlay playsInline muted
-          style={{ width: "100%", display: "block", maxHeight: 260, objectFit: "cover",
-            opacity: ready ? 1 : 0 }} />
+        <video ref={vRef} autoPlay playsInline muted style={{width:"100%",display:"block",maxHeight:280,objectFit:"cover",opacity:ready?1:0}}/>
 
-        {/* harakatlanuvchi skaner chizig'i */}
-        {active && !pulse && (
-          <div style={{ position: "absolute", left: "5%", right: "5%", height: 3, borderRadius: 2,
-            background: "linear-gradient(90deg,transparent,#6366f1,#a855f7,#6366f1,transparent)",
-            animation: "scanLine 1.8s ease-in-out infinite",
-            boxShadow: "0 0 14px rgba(139,92,246,0.9)" }} />
+        {/* Scan chizig'i */}
+        {active&&!pulse&&(
+          <div style={{position:"absolute",left:"4%",right:"4%",height:2.5,borderRadius:2,
+            background:"linear-gradient(90deg,transparent,#6366f1,#06b6d4,#6366f1,transparent)",
+            animation:"scanLine 1.8s ease-in-out infinite",boxShadow:"0 0 12px rgba(99,102,241,0.8)"}}/>
         )}
 
-        {/* muvaffaqiyat yanishi */}
-        {pulse && (
-          <div style={{ position: "absolute", inset: 0, background: "rgba(16,185,129,0.3)",
-            display: "flex", alignItems: "center", justifyContent: "center",
-            animation: "pulseFade 0.5s ease-out" }}>
-            <div style={{ fontSize: 70, animation: "popIn 0.4s ease" }}>✅</div>
+        {/* Muvaffaqiyat */}
+        {pulse&&(
+          <div style={{position:"absolute",inset:0,background:"rgba(34,197,94,0.25)",display:"flex",alignItems:"center",justifyContent:"center",animation:"fadeIn .4s"}}>
+            <div style={{fontSize:72,animation:"popIn .4s ease"}}>✅</div>
           </div>
         )}
 
-        {/* burchak belgilari */}
-        {[[{top:10,left:10},{borderTop:"3px solid #818cf8",borderLeft:"3px solid #818cf8"}],
-          [{top:10,right:10},{borderTop:"3px solid #818cf8",borderRight:"3px solid #818cf8"}],
-          [{bottom:10,left:10},{borderBottom:"3px solid #818cf8",borderLeft:"3px solid #818cf8"}],
-          [{bottom:10,right:10},{borderBottom:"3px solid #818cf8",borderRight:"3px solid #818cf8"}]
-        ].map(([pos, border], i) => (
-          <div key={i} style={{ position:"absolute", width:28, height:28,
-            borderRadius:3, pointerEvents:"none", ...pos, ...border }} />
-        ))}
+        {/* Burchak belgilari */}
+        {[[{top:12,left:12},{borderTop:"2.5px solid #6366f1",borderLeft:"2.5px solid #6366f1"}],
+          [{top:12,right:12},{borderTop:"2.5px solid #6366f1",borderRight:"2.5px solid #6366f1"}],
+          [{bottom:12,left:12},{borderBottom:"2.5px solid #6366f1",borderLeft:"2.5px solid #6366f1"}],
+          [{bottom:12,right:12},{borderBottom:"2.5px solid #6366f1",borderRight:"2.5px solid #6366f1"}]
+        ].map(([pos,brd],i)=>(<div key={i} style={{position:"absolute",width:24,height:24,borderRadius:2,pointerEvents:"none",...pos,...brd}}/>))}
+
+        {/* Torch tugmasi */}
+        {torchOk&&active&&(
+          <button onClick={toggleTorch} style={{position:"absolute",top:12,left:"50%",transform:"translateX(-50%)",
+            background:torch?"rgba(251,191,36,0.2)":"rgba(0,0,0,0.5)",color:torch?"#fbbf24":"#fff",
+            border:`1.5px solid ${torch?"rgba(251,191,36,0.5)":"rgba(255,255,255,0.2)"}`,
+            borderRadius:20,padding:"4px 14px",fontSize:12,fontWeight:600,cursor:"pointer"}}>
+            {torch?"🔦 Yoqiq":"🔦 Fonar"}
+          </button>
+        )}
       </div>
-      <canvas ref={canvasRef} style={{ display: "none" }} />
-      <div style={{ marginTop: 8, padding: "10px 14px",
-        background: pulse ? "rgba(16,185,129,0.1)" : "rgba(99,102,241,0.08)",
-        border: `1.5px solid ${pulse ? "rgba(16,185,129,0.3)" : "rgba(99,102,241,0.18)"}`,
-        borderRadius: 12, display: "flex", alignItems: "center", gap: 10,
-        transition: "all 0.3s" }}>
-        <div style={{ width: 14, height: 14, border: `2.5px solid ${pulse ? "#10b981" : "#6366f1"}`,
-          borderTopColor: "transparent", borderRadius: "50%",
-          animation: "spin 0.8s linear infinite", flexShrink: 0 }} />
-        <span style={{ color: pulse ? "#10b981" : "#818cf8", fontSize: 12, fontWeight: 600 }}>{status}</span>
+      <canvas ref={cRef} style={{display:"none"}}/>
+
+      {/* Status */}
+      <div style={{marginTop:8,padding:"10px 14px",background:"rgba(99,102,241,0.07)",
+        border:"1px solid rgba(99,102,241,0.15)",borderRadius:12,
+        display:"flex",alignItems:"center",gap:10}}>
+        <div style={{width:13,height:13,border:"2.5px solid #6366f1",borderTopColor:"transparent",
+          borderRadius:"50%",animation:"spin .8s linear infinite",flexShrink:0}}/>
+        <span style={{color:"#94a3b8",fontSize:12,fontWeight:600}}>{status}</span>
       </div>
+
       <style>{`
-        @keyframes scanLine  { 0%{top:8%}  50%{top:82%} 100%{top:8%} }
-        @keyframes spin      { to{transform:rotate(360deg)} }
-        @keyframes pulseFade { 0%{opacity:1} 100%{opacity:0} }
-        @keyframes slideUp   { from{opacity:0;transform:translateY(20px)} to{opacity:1;transform:none} }
-        @keyframes popIn     { 0%{transform:scale(0.4);opacity:0} 70%{transform:scale(1.15)} 100%{transform:scale(1);opacity:1} }
+        @keyframes scanLine{0%{top:6%}50%{top:84%}100%{top:6%}}
+        @keyframes spin{to{transform:rotate(360deg)}}
+        @keyframes fadeIn{from{opacity:0}to{opacity:1}}
+        @keyframes popIn{0%{transform:scale(.4);opacity:0}70%{transform:scale(1.1)}100%{transform:scale(1);opacity:1}}
+        @keyframes slideUp{from{opacity:0;transform:translateY(24px)}to{opacity:1;transform:none}}
+        @keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
       `}</style>
     </div>
   );
 }
 
-// ─── Camera ───────────────────────────────────────────────────────────────────
-function Camera({ onCapture, label, icon }) {
-  const vRef = useRef(null), cRef = useRef(null);
-  const [stream, setStream] = useState(null);
-  const [on, setOn]         = useState(false);
-  const [img, setImg]       = useState(null);
-  const [count, setCount]   = useState(null);
+// ─── Camera (yuz rasmi) ───────────────────────────────────────────────────────
+function Camera({ onCapture }) {
+  const vRef=useRef(null), cRef=useRef(null);
+  const [stream,setStream]=useState(null);
+  const [on,setOn]=useState(false);
+  const [img,setImg]=useState(null);
+  const [cnt,setCnt]=useState(null);
 
-  const start = async () => {
-    try {
-      const s = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: "user", width: 640, height: 480 }
-      });
+  const start=async()=>{
+    try{
+      const s=await navigator.mediaDevices.getUserMedia({video:{facingMode:"user",width:640,height:480}});
       setStream(s); setOn(true);
-      setTimeout(() => { if (vRef.current) vRef.current.srcObject = s; }, 100);
-    } catch { alert("Kamera ruxsati berilmadi!"); }
+      setTimeout(()=>{ if(vRef.current) vRef.current.srcObject=s; },100);
+    }catch{ alert("Kamera ruxsati berilmadi!"); }
   };
-  const stop  = () => { stream?.getTracks().forEach(t => t.stop()); setStream(null); setOn(false); };
-  const snap  = () => {
-    const v = vRef.current, c = cRef.current; if (!v || !c) return;
-    c.width = v.videoWidth; c.height = v.videoHeight;
-    c.getContext("2d").drawImage(v, 0, 0);
-    const url = c.toDataURL("image/jpeg", 0.8);
+  const stop=()=>{ stream?.getTracks().forEach(t=>t.stop()); setStream(null); setOn(false); };
+  const snap=()=>{
+    const v=vRef.current,c=cRef.current; if(!v||!c) return;
+    c.width=v.videoWidth; c.height=v.videoHeight;
+    c.getContext("2d").drawImage(v,0,0);
+    const url=c.toDataURL("image/jpeg",.85);
     setImg(url); onCapture(url); stop();
   };
-  const startCountdown = () => {
-    setCount(3);
-    const id = setInterval(() => {
-      setCount(prev => {
-        if (prev <= 1) { clearInterval(id); snap(); return null; }
-        return prev - 1;
-      });
-    }, 1000);
+  const countdown=()=>{
+    setCnt(3);
+    const id=setInterval(()=>setCnt(p=>{ if(p<=1){clearInterval(id);snap();return null;} return p-1; }),1000);
   };
-  const retake = () => { setImg(null); onCapture(null); start(); };
-  useEffect(() => () => stream?.getTracks().forEach(t => t.stop()), [stream]);
+  const retake=()=>{ setImg(null); onCapture(null); start(); };
+  useEffect(()=>()=>stream?.getTracks().forEach(t=>t.stop()),[stream]);
 
-  if (img) return (
-    <div style={{ position: "relative" }}>
-      <img src={img} alt={label} style={{ width: "100%", borderRadius: 14, border: "2.5px solid #10b981", objectFit: "cover" }} />
-      <div style={{ position: "absolute", top: 10, right: 10, background: "linear-gradient(135deg,#10b981,#059669)",
-        color: "#fff", borderRadius: 20, padding: "5px 14px", fontSize: 12, fontWeight: 700 }}>✓ Tayyor</div>
-      <button onClick={retake} style={{ marginTop: 10, width: "100%", padding: 11, background: "rgba(239,68,68,0.08)",
-        color: "#ef4444", border: "1.5px solid rgba(239,68,68,0.3)", borderRadius: 12,
-        fontWeight: 600, fontSize: 14, cursor: "pointer" }}>🔄 Qayta olish</button>
+  if(img) return (
+    <div style={{position:"relative"}}>
+      <img src={img} alt="" style={{width:"100%",borderRadius:14,border:"2px solid #22c55e",objectFit:"cover",maxHeight:220}}/>
+      <div style={{position:"absolute",top:10,right:10,background:"#22c55e",color:"#fff",borderRadius:20,padding:"4px 12px",fontSize:12,fontWeight:700}}>✓ Saqlandi</div>
+      <button onClick={retake} style={btnStyle("#ef4444","rgba(239,68,68,0.08)")}>🔄 Qayta olish</button>
     </div>
   );
-
-  if (on) return (
+  if(on) return (
     <div>
-      <div style={{ position: "relative", borderRadius: 14, overflow: "hidden" }}>
-        <video ref={vRef} autoPlay playsInline muted style={{ width: "100%", display: "block", maxHeight: 240, objectFit: "cover" }} />
-        {count && (
-          <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.5)",
-            display: "flex", alignItems: "center", justifyContent: "center" }}>
-            <div style={{ fontSize: 80, fontWeight: 900, color: "#fff",
-              textShadow: "0 0 30px rgba(99,102,241,0.8)", animation: "popIn 0.4s ease" }}>{count}</div>
-          </div>
-        )}
+      <div style={{position:"relative",borderRadius:14,overflow:"hidden"}}>
+        <video ref={vRef} autoPlay playsInline muted style={{width:"100%",display:"block",maxHeight:220,objectFit:"cover"}}/>
+        {cnt&&<div style={{position:"absolute",inset:0,background:"rgba(0,0,0,0.55)",display:"flex",alignItems:"center",justifyContent:"center"}}>
+          <span style={{fontSize:80,fontWeight:900,color:"#fff",animation:"popIn .4s"}}>{cnt}</span>
+        </div>}
       </div>
-      <canvas ref={cRef} style={{ display: "none" }} />
-      <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
-        <button onClick={startCountdown} disabled={!!count} style={{ flex: 1, padding: 13, border: "none",
-          borderRadius: 12, fontWeight: 700, fontSize: 15, cursor: "pointer", color: "#fff",
-          background: "linear-gradient(135deg,#10b981,#059669)",
-          boxShadow: "0 4px 16px rgba(16,185,129,0.3)" }}>📸 3s-Countdown</button>
-        <button onClick={snap} disabled={!!count} style={{ padding: "13px 18px", border: "none",
-          borderRadius: 12, fontWeight: 700, fontSize: 15, cursor: "pointer",
-          color: "#fff", background: "linear-gradient(135deg,#6366f1,#8b5cf6)" }}>📸</button>
-        <button onClick={stop} style={{ padding: "13px 16px", border: "none", borderRadius: 12,
-          fontWeight: 700, fontSize: 15, cursor: "pointer", color: "#fff", background: "#ef4444" }}>✕</button>
+      <canvas ref={cRef} style={{display:"none"}}/>
+      <div style={{display:"flex",gap:8,marginTop:8}}>
+        <button onClick={countdown} disabled={!!cnt} style={btnStyle("#6366f1","linear-gradient(135deg,#6366f1,#8b5cf6)",true)}>
+          📸 3... 2... 1...
+        </button>
+        <button onClick={snap} disabled={!!cnt} style={btnStyle("#6366f1","linear-gradient(135deg,#6366f1,#8b5cf6)",false,true)}>📸</button>
+        <button onClick={stop} style={btnStyle("#ef4444","#ef4444",false,true)}>✕</button>
       </div>
     </div>
   );
-
   return (
-    <button onClick={start} style={{ width: "100%", padding: 16, border: "none", borderRadius: 13,
-      fontWeight: 700, fontSize: 15, cursor: "pointer", color: "#fff",
-      background: "linear-gradient(135deg,#6366f1,#8b5cf6)",
-      display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
-      boxShadow: "0 4px 20px rgba(99,102,241,0.3)" }}>
-      {icon} {label}
+    <button onClick={start} style={btnStyle("#6366f1","linear-gradient(135deg,#6366f1,#8b5cf6)",true)}>
+      📷 Yuz rasmini olish
     </button>
   );
 }
 
-// ─── Login ───────────────────────────────────────────────────────────────────
+const btnStyle=(color,bg,full=false,sm=false)=>({
+  width:full?"100%":"auto", padding:sm?"12px 16px":"13px 18px",
+  background:bg, color:"#fff", border:"none", borderRadius:12,
+  fontWeight:700, fontSize:14, cursor:"pointer", flex:full?undefined:1,
+  boxShadow:`0 4px 12px ${color}33`
+});
+
+// ─── Login ────────────────────────────────────────────────────────────────────
 function Login({ onLogin }) {
-  const [u, setU] = useState(""), [p, setP] = useState(""), [err, setErr] = useState("");
-  const go = () => {
-    const x = USERS[u];
-    if (x && x.password === p) onLogin({ username: u, ...x });
+  const [u,setU]=useState(""), [p,setP]=useState(""), [err,setErr]=useState(""), [loading,setLoading]=useState(false);
+  const go=()=>{
+    const x=USERS[u];
+    if(x&&x.password===p){ setLoading(true); setTimeout(()=>onLogin({username:u,...x}),600); }
     else setErr("Login yoki parol noto'g'ri!");
   };
-  const inp = { padding: "15px 18px", background: "rgba(15,23,42,0.7)",
-    border: "1.5px solid rgba(99,102,241,0.2)", borderRadius: 14, color: "#f1f5f9",
-    fontSize: 15, outline: "none", width: "100%", boxSizing: "border-box" };
-
+  const inp={padding:"14px 18px",background:"rgba(255,255,255,0.04)",border:"1.5px solid rgba(255,255,255,0.08)",
+    borderRadius:14,color:"#f1f5f9",fontSize:15,outline:"none",width:"100%",boxSizing:"border-box",
+    fontFamily:"inherit",transition:"border .2s"};
   return (
-    <div style={{ minHeight: "100vh", background: "linear-gradient(160deg,#0a0f1a,#111827)",
-      display: "flex", alignItems: "center", justifyContent: "center", padding: 20, fontFamily: "'Segoe UI',system-ui,sans-serif" }}>
-      <div style={{ width: "100%", maxWidth: 400, background: "rgba(17,24,39,0.9)",
-        backdropFilter: "blur(24px)", borderRadius: 28, padding: "40px 30px",
-        border: "1px solid rgba(99,102,241,0.2)", boxShadow: "0 32px 64px rgba(0,0,0,0.7)",
-        animation: "slideUp 0.4s ease" }}>
-        <div style={{ textAlign: "center", marginBottom: 36 }}>
-          <div style={{ width: 88, height: 88, background: "linear-gradient(135deg,#6366f1,#a855f7)",
-            borderRadius: 26, display: "flex", alignItems: "center", justifyContent: "center",
-            margin: "0 auto 18px", fontSize: 40, boxShadow: "0 12px 40px rgba(99,102,241,0.5)" }}>🏘️</div>
-          <h1 style={{ color: "#f1f5f9", fontSize: 26, fontWeight: 900, margin: 0 }}>MFY Monitoring</h1>
-          <p style={{ color: "#64748b", fontSize: 13, marginTop: 8 }}>Fuqarolarni ro'yxatga olish tizimi</p>
+    <div style={{minHeight:"100vh",background:"linear-gradient(135deg,#0b1220 0%,#0f172a 50%,#0b1220 100%)",
+      display:"flex",alignItems:"center",justifyContent:"center",padding:20,fontFamily:"'Segoe UI',system-ui,sans-serif"}}>
+      <div style={{width:"100%",maxWidth:380,animation:"slideUp .5s ease"}}>
+        {/* Logo */}
+        <div style={{textAlign:"center",marginBottom:40}}>
+          <div style={{width:80,height:80,background:"linear-gradient(135deg,#6366f1,#8b5cf6)",
+            borderRadius:24,display:"flex",alignItems:"center",justifyContent:"center",
+            margin:"0 auto 20px",fontSize:36,boxShadow:"0 20px 60px rgba(99,102,241,0.4)"}}>🏛️</div>
+          <h1 style={{color:"#f1f5f9",fontSize:22,fontWeight:800,margin:0,letterSpacing:-.5}}>MFY Monitoring</h1>
+          <p style={{color:"#475569",fontSize:13,marginTop:6,marginBottom:0}}>Fuqarolarni ro'yxatga olish tizimi</p>
         </div>
-        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-          <input value={u} onChange={e => { setU(e.target.value); setErr(""); }}
-            placeholder="Login" style={inp}
-            onFocus={e => e.target.style.borderColor="#6366f1"} onBlur={e => e.target.style.borderColor="rgba(99,102,241,0.2)"} />
-          <input type="password" value={p} onChange={e => { setP(e.target.value); setErr(""); }}
-            placeholder="Parol" onKeyDown={e => e.key === "Enter" && go()} style={inp}
-            onFocus={e => e.target.style.borderColor="#6366f1"} onBlur={e => e.target.style.borderColor="rgba(99,102,241,0.2)"} />
-          {err && <div style={{ color: "#ef4444", fontSize: 13, textAlign: "center",
-            padding: "10px 14px", background: "rgba(239,68,68,0.1)", borderRadius: 10 }}>{err}</div>}
-          <button onClick={go} style={{ padding: 16, background: "linear-gradient(135deg,#6366f1,#8b5cf6)",
-            color: "#fff", border: "none", borderRadius: 14, fontWeight: 800,
-            fontSize: 16, cursor: "pointer", boxShadow: "0 6px 24px rgba(99,102,241,0.35)" }}>
-            Kirish →
-          </button>
+
+        {/* Form */}
+        <div style={{background:"rgba(255,255,255,0.03)",borderRadius:24,padding:"32px 28px",
+          border:"1px solid rgba(255,255,255,0.06)",backdropFilter:"blur(20px)"}}>
+          <div style={{display:"flex",flexDirection:"column",gap:14}}>
+            <div>
+              <label style={{color:"#64748b",fontSize:12,fontWeight:600,display:"block",marginBottom:6,textTransform:"uppercase",letterSpacing:.8}}>Login</label>
+              <input value={u} onChange={e=>{setU(e.target.value);setErr("");}} placeholder="hodim1"
+                style={inp} onFocus={e=>e.target.style.borderColor="#6366f1"} onBlur={e=>e.target.style.borderColor="rgba(255,255,255,0.08)"}/>
+            </div>
+            <div>
+              <label style={{color:"#64748b",fontSize:12,fontWeight:600,display:"block",marginBottom:6,textTransform:"uppercase",letterSpacing:.8}}>Parol</label>
+              <input type="password" value={p} onChange={e=>{setP(e.target.value);setErr("");}}
+                placeholder="••••••" onKeyDown={e=>e.key==="Enter"&&go()} style={inp}
+                onFocus={e=>e.target.style.borderColor="#6366f1"} onBlur={e=>e.target.style.borderColor="rgba(255,255,255,0.08)"}/>
+            </div>
+            {err&&<div style={{color:"#f87171",fontSize:13,padding:"10px 14px",background:"rgba(248,113,113,0.08)",borderRadius:10,border:"1px solid rgba(248,113,113,0.15)"}}>{err}</div>}
+            <button onClick={go} disabled={loading} style={{marginTop:4,padding:15,
+              background:loading?"#1e293b":"linear-gradient(135deg,#6366f1,#8b5cf6)",
+              color:"#fff",border:"none",borderRadius:14,fontWeight:700,fontSize:15,cursor:loading?"wait":"pointer",
+              boxShadow:"0 8px 24px rgba(99,102,241,0.3)",transition:"all .2s"}}>
+              {loading?"Kirilmoqda...":"Kirish →"}
+            </button>
+          </div>
         </div>
-        <div style={{ marginTop: 24, padding: "14px 16px", background: "rgba(15,23,42,0.5)",
-          borderRadius: 14, border: "1px solid rgba(99,102,241,0.1)" }}>
-          <p style={{ color: "#64748b", fontSize: 11, margin: "0 0 8px", fontWeight: 700,
-            textTransform: "uppercase", letterSpacing: 1 }}>Demo loginlar</p>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 5, fontSize: 12, color: "#94a3b8" }}>
-            <span style={{ fontFamily: "monospace" }}>admin / admin123</span>
-            <span style={{ color: "#a855f7", fontWeight: 600 }}>→ Boshliq</span>
-            <span style={{ fontFamily: "monospace" }}>hodim1 / 1234</span>
-            <span style={{ color: "#6366f1", fontWeight: 600 }}>→ Hodim</span>
+
+        {/* Hint */}
+        <div style={{marginTop:16,padding:"14px 18px",background:"rgba(255,255,255,0.02)",borderRadius:14,border:"1px solid rgba(255,255,255,0.05)"}}>
+          <p style={{color:"#334155",fontSize:11,margin:"0 0 8px",fontWeight:700,textTransform:"uppercase",letterSpacing:1}}>Demo</p>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:4,fontSize:12,color:"#475569"}}>
+            <span style={{fontFamily:"monospace"}}>admin / admin123</span><span style={{color:"#8b5cf6",fontWeight:600}}>Boshliq</span>
+            <span style={{fontFamily:"monospace"}}>hodim1 / 1234</span><span style={{color:"#6366f1",fontWeight:600}}>Hodim</span>
           </div>
         </div>
       </div>
-      <style>{`@keyframes slideUp{from{opacity:0;transform:translateY(30px)}to{opacity:1;transform:none}}`}</style>
     </div>
   );
 }
 
-// ─── Hodim ───────────────────────────────────────────────────────────────────
+// ─── Hodim ────────────────────────────────────────────────────────────────────
 function Hodim({ user, records, setRecords, onLogout }) {
-  const [step, setStep]       = useState("mfy");
-  const [mfy, setMfy]         = useState(null);
-  const [face, setFace]       = useState(null);
-  const [passport, setPassport] = useState(null);
-  const [name, setName]       = useState("");
-  const [jshshir, setJshshir] = useState("");
-  const [coords, setCoords]   = useState(null);
-  const [sending, setSending] = useState(false);
-  const [search, setSearch]   = useState("");
-  const [toast, setToast]     = useState(null);
-  const [success, setSuccess] = useState(null);
+  const [step,setStep]=useState("mfy");
+  const [mfy,setMfy]=useState(null);
+  const [face,setFace]=useState(null);
+  const [passport,setPassport]=useState(null);
+  const [name,setName]=useState("");
+  const [jshshir,setJshshir]=useState("");
+  const [coords,setCoords]=useState(null);
+  const [sending,setSending]=useState(false);
+  const [search,setSearch]=useState("");
+  const [toast,setToast]=useState(null);
+  const [success,setSuccess]=useState(null);
 
-  useEffect(() => {
+  useEffect(()=>{
     navigator.geolocation?.getCurrentPosition(
-      p => setCoords({ lat: p.coords.latitude.toFixed(6), lng: p.coords.longitude.toFixed(6) }),
-      () => setCoords({ lat: "40.6367", lng: "71.5567" })
+      p=>setCoords({lat:p.coords.latitude.toFixed(6),lng:p.coords.longitude.toFixed(6)}),
+      ()=>setCoords({lat:"40.6367",lng:"71.5567"})
     );
-  }, []);
+  },[]);
 
-  const myToday = records.filter(r =>
-    r.hodim === user.username && fmtDate(new Date(r.timestamp)) === todayStr()
-  ).length;
+  const myToday=records.filter(r=>r.hodim===user.username&&fmtDate(new Date(r.timestamp))===todayStr()).length;
+  const show=(msg,type="ok")=>{ setToast({msg,type}); setTimeout(()=>setToast(null),3500); };
 
-  const show = (msg, type = "success") => {
-    setToast({ msg, type });
-    setTimeout(() => setToast(null), 3500);
+  const onPassport=(j,fullName,photo)=>{
+    setJshshir(j); setPassport(photo);
+    if(fullName&&!name.trim()) setName(fullName);
+    show("✅ JShShIR aniqlandi!");
   };
 
-  const onPassportFound = (j, fullName, photo) => {
-    setJshshir(j);
-    setPassport(photo);
-    if (fullName && !name.trim()) {
-      setName(fullName);
-      show("✅ JShShIR va ism avtomatik topildi!");
-    } else {
-      show("✅ JShShIR avtomatik topildi!");
-    }
-  };
-
-  const submit = () => {
-    if (!face || !passport || !name.trim() || jshshir.length !== 14) {
-      show("Barcha ma'lumotlarni to'ldiring!", "error"); return;
-    }
+  const submit=()=>{
+    if(!face||!passport||!name.trim()||jshshir.length!==14){show("Barcha maydonlarni to'ldiring!","err");return;}
     setSending(true);
-    setTimeout(() => {
-      const rec = {
-        id: Date.now(), hodim: user.username, hodimName: user.name, mfy,
-        fullName: name.trim(), jshshir, facePhoto: face, passportPhoto: passport,
-        coords, timestamp: new Date().toISOString()
-      };
-      setRecords(prev => [...prev, rec]);
-      setSending(false);
-      setSuccess(rec);
-      setFace(null); setPassport(null); setName(""); setJshshir(""); setStep("mfy");
-    }, 1000);
+    setTimeout(()=>{
+      const rec={id:Date.now(),hodim:user.username,hodimName:user.name,mfy,
+        fullName:name.trim(),jshshir,facePhoto:face,passportPhoto:passport,
+        coords,timestamp:new Date().toISOString()};
+      setRecords(p=>[...p,rec]);
+      setSending(false); setSuccess(rec);
+      setFace(null);setPassport(null);setName("");setJshshir("");setStep("mfy");
+    },900);
   };
 
-  const filtered = MFY_LIST.filter(m => m.name.toLowerCase().includes(search.toLowerCase()));
-  const inp = { width: "100%", padding: "14px 16px", background: "rgba(15,23,42,0.6)",
-    border: "1.5px solid rgba(99,102,241,0.2)", borderRadius: 13, color: "#f1f5f9",
-    fontSize: 15, outline: "none", boxSizing: "border-box" };
+  const steps=[{ok:!!name.trim(),l:"FIO"},{ok:!!face,l:"Yuz"},{ok:!!passport,l:"Pasport"},{ok:jshshir.length===14,l:"JSHSHIR"}];
+  const allOk=steps.every(s=>s.ok);
+  const filtered=MFY_LIST.filter(m=>m.name.toLowerCase().includes(search.toLowerCase()));
 
   return (
-    <div style={{ minHeight: "100vh", background: "linear-gradient(180deg,#0a0f1a,#111827)",
-      fontFamily: "'Segoe UI',system-ui,sans-serif" }}>
+    <div style={{minHeight:"100vh",background:"#0b1220",fontFamily:"'Segoe UI',system-ui,sans-serif",color:"#f1f5f9"}}>
 
       {/* Toast */}
-      {toast && (
-        <div style={{ position: "fixed", top: 16, left: "50%", transform: "translateX(-50%)",
-          zIndex: 999, background: toast.type === "error"
-            ? "linear-gradient(135deg,#ef4444,#dc2626)"
-            : "linear-gradient(135deg,#10b981,#059669)",
-          color: "#fff", padding: "13px 28px", borderRadius: 16, fontWeight: 700,
-          fontSize: 14, boxShadow: "0 8px 32px rgba(0,0,0,0.5)",
-          maxWidth: "90vw", textAlign: "center", animation: "slideUp 0.3s ease" }}>
-          {toast.msg}
-        </div>
-      )}
+      {toast&&<div style={{position:"fixed",top:16,left:"50%",transform:"translateX(-50%)",zIndex:999,
+        background:toast.type==="err"?"linear-gradient(135deg,#ef4444,#dc2626)":"linear-gradient(135deg,#22c55e,#16a34a)",
+        color:"#fff",padding:"12px 24px",borderRadius:14,fontWeight:700,fontSize:14,
+        boxShadow:"0 8px 32px rgba(0,0,0,0.5)",maxWidth:"88vw",textAlign:"center",animation:"slideUp .3s"}}>
+        {toast.msg}
+      </div>}
 
-      {/* Success modal */}
-      {success && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)",
-          zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center",
-          padding: 20, backdropFilter: "blur(8px)" }}>
-          <div style={{ background: "rgba(17,24,39,0.98)", borderRadius: 28, padding: "36px 28px",
-            maxWidth: 380, width: "100%", textAlign: "center",
-            border: "1.5px solid rgba(16,185,129,0.3)", animation: "slideUp 0.4s ease",
-            boxShadow: "0 0 60px rgba(16,185,129,0.15)" }}>
-            <div style={{ fontSize: 72, animation: "popIn 0.5s ease", marginBottom: 16 }}>🎉</div>
-            <h2 style={{ color: "#10b981", fontSize: 22, fontWeight: 900, margin: "0 0 8px" }}>
-              Muvaffaqiyatli!
-            </h2>
-            <p style={{ color: "#94a3b8", fontSize: 14, margin: "0 0 20px" }}>
-              Ma'lumot tizimga saqlandi
-            </p>
-            <div style={{ background: "rgba(16,185,129,0.08)", borderRadius: 16, padding: "16px 20px",
-              textAlign: "left", marginBottom: 24, border: "1px solid rgba(16,185,129,0.15)" }}>
-              <div style={{ color: "#f1f5f9", fontWeight: 700, fontSize: 18 }}>{success.fullName}</div>
-              <div style={{ color: "#6366f1", fontFamily: "monospace", fontSize: 14,
-                letterSpacing: 2, marginTop: 6 }}>{success.jshshir}</div>
-              <div style={{ color: "#64748b", fontSize: 12, marginTop: 6 }}>{success.mfy?.name}</div>
-            </div>
-            <button onClick={() => setSuccess(null)} style={{ width: "100%", padding: 15,
-              background: "linear-gradient(135deg,#10b981,#059669)", color: "#fff",
-              border: "none", borderRadius: 14, fontWeight: 800, fontSize: 16, cursor: "pointer",
-              boxShadow: "0 6px 24px rgba(16,185,129,0.35)" }}>
-              ➕ Keyingi fuqaro
-            </button>
+      {/* Muvaffaqiyat */}
+      {success&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.88)",zIndex:1000,
+        display:"flex",alignItems:"center",justifyContent:"center",padding:20,backdropFilter:"blur(12px)"}}>
+        <div style={{background:"#111827",borderRadius:28,padding:"36px 28px",maxWidth:360,width:"100%",
+          textAlign:"center",border:"1px solid rgba(34,197,94,0.2)",animation:"slideUp .4s",
+          boxShadow:"0 0 80px rgba(34,197,94,0.1)"}}>
+          <div style={{fontSize:64,marginBottom:16,animation:"popIn .5s"}}>🎉</div>
+          <h2 style={{color:"#22c55e",fontSize:20,fontWeight:800,margin:"0 0 6px"}}>Muvaffaqiyatli!</h2>
+          <p style={{color:"#64748b",fontSize:13,margin:"0 0 20px"}}>Ma'lumot tizimga saqlandi</p>
+          <div style={{background:"rgba(34,197,94,0.06)",borderRadius:16,padding:"16px 18px",
+            textAlign:"left",marginBottom:24,border:"1px solid rgba(34,197,94,0.1)"}}>
+            <div style={{fontWeight:800,fontSize:17}}>{success.fullName}</div>
+            <div style={{color:"#6366f1",fontFamily:"monospace",fontSize:14,letterSpacing:2,marginTop:4}}>{success.jshshir}</div>
+            <div style={{color:"#64748b",fontSize:12,marginTop:4}}>{success.mfy?.name}</div>
           </div>
+          <button onClick={()=>setSuccess(null)} style={{width:"100%",padding:14,
+            background:"linear-gradient(135deg,#22c55e,#16a34a)",color:"#fff",border:"none",
+            borderRadius:14,fontWeight:800,fontSize:15,cursor:"pointer",
+            boxShadow:"0 6px 20px rgba(34,197,94,0.3)"}}>
+            ➕ Keyingi fuqaro
+          </button>
         </div>
-      )}
+      </div>}
 
       {/* Header */}
-      <div style={{ background: "rgba(17,24,39,0.95)", backdropFilter: "blur(12px)",
-        padding: "14px 20px", display: "flex", justifyContent: "space-between",
-        alignItems: "center", borderBottom: "1px solid rgba(99,102,241,0.12)",
-        position: "sticky", top: 0, zIndex: 50 }}>
+      <div style={{background:"rgba(15,23,42,0.96)",backdropFilter:"blur(12px)",
+        padding:"14px 20px",display:"flex",justifyContent:"space-between",alignItems:"center",
+        borderBottom:"1px solid rgba(255,255,255,0.05)",position:"sticky",top:0,zIndex:50}}>
         <div>
-          <div style={{ color: "#f1f5f9", fontWeight: 700, fontSize: 16 }}>{user.name}</div>
-          <div style={{ color: "#6366f1", fontSize: 12, fontWeight: 600 }}>
-            Bugun: {myToday} ta yozuv • Jami: {records.filter(r => r.hodim === user.username).length}
+          <div style={{fontWeight:700,fontSize:15}}>{user.name}</div>
+          <div style={{color:"#6366f1",fontSize:11,fontWeight:600,marginTop:1}}>
+            Bugun {myToday} ta • Jami {records.filter(r=>r.hodim===user.username).length} ta
           </div>
         </div>
-        <button onClick={onLogout} style={{ padding: "8px 18px", background: "rgba(239,68,68,0.1)",
-          color: "#ef4444", border: "1.5px solid rgba(239,68,68,0.25)",
-          borderRadius: 11, fontWeight: 600, fontSize: 13, cursor: "pointer" }}>Chiqish</button>
+        <button onClick={onLogout} style={{padding:"7px 16px",background:"rgba(239,68,68,0.08)",
+          color:"#ef4444",border:"1px solid rgba(239,68,68,0.2)",borderRadius:10,fontWeight:600,fontSize:13,cursor:"pointer"}}>
+          Chiqish
+        </button>
       </div>
 
       {/* MFY tanlash */}
-      {step === "mfy" && (
-        <div style={{ padding: 20 }}>
-          <h2 style={{ color: "#f1f5f9", fontSize: 20, fontWeight: 800, margin: "0 0 4px" }}>MFY tanlang</h2>
-          <p style={{ color: "#64748b", fontSize: 13, margin: "0 0 16px" }}>Qaysi mahallaga borasiz?</p>
-          <div style={{ position: "relative", marginBottom: 12 }}>
-            <span style={{ position: "absolute", left: 14, top: "50%", transform: "translateY(-50%)", fontSize: 16 }}>🔍</span>
-            <input value={search} onChange={e => setSearch(e.target.value)}
-              placeholder="Qidirish..." style={{ ...inp, paddingLeft: 42 }} />
-          </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: "66vh", overflowY: "auto" }}>
-            {filtered.map(m => {
-              const cnt = records.filter(r => r.mfy?.id === m.id && r.hodim === user.username).length;
-              return (
-                <button key={m.id} onClick={() => { setMfy(m); setStep("capture"); }} style={{
-                  padding: "13px 16px",
-                  background: cnt > 0 ? "rgba(16,185,129,0.07)" : "rgba(17,24,39,0.5)",
-                  border: cnt > 0 ? "1.5px solid rgba(16,185,129,0.2)" : "1.5px solid rgba(99,102,241,0.1)",
-                  borderRadius: 13, color: "#f1f5f9", fontWeight: 600, fontSize: 14,
-                  cursor: "pointer", textAlign: "left", display: "flex",
-                  justifyContent: "space-between", alignItems: "center" }}>
-                  <span>
-                    <span style={{ color: "#475569", marginRight: 10, fontSize: 11 }}>{m.id}</span>
-                    {m.name}
-                  </span>
-                  {cnt > 0 && (
-                    <span style={{ background: "rgba(16,185,129,0.15)", color: "#10b981",
-                      padding: "3px 10px", borderRadius: 8, fontSize: 12, fontWeight: 700 }}>{cnt}</span>
-                  )}
-                </button>
-              );
-            })}
-          </div>
+      {step==="mfy"&&<div style={{padding:20}}>
+        <h2 style={{fontSize:20,fontWeight:800,margin:"0 0 4px"}}>MFY tanlang</h2>
+        <p style={{color:"#475569",fontSize:13,margin:"0 0 16px"}}>Qaysi mahallaga borasiz?</p>
+        <div style={{position:"relative",marginBottom:12}}>
+          <span style={{position:"absolute",left:14,top:"50%",transform:"translateY(-50%)",color:"#475569"}}>🔍</span>
+          <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Qidirish..."
+            style={{width:"100%",padding:"12px 14px 12px 40px",background:"rgba(255,255,255,0.04)",
+              border:"1px solid rgba(255,255,255,0.07)",borderRadius:13,color:"#f1f5f9",
+              fontSize:14,outline:"none",boxSizing:"border-box"}}/>
         </div>
-      )}
+        <div style={{display:"flex",flexDirection:"column",gap:5,maxHeight:"66vh",overflowY:"auto"}}>
+          {filtered.map(m=>{
+            const cnt=records.filter(r=>r.mfy?.id===m.id&&r.hodim===user.username).length;
+            return(
+              <button key={m.id} onClick={()=>{setMfy(m);setStep("capture");}}
+                style={{padding:"12px 16px",background:cnt>0?"rgba(99,102,241,0.07)":"rgba(255,255,255,0.03)",
+                  border:cnt>0?"1px solid rgba(99,102,241,0.2)":"1px solid rgba(255,255,255,0.05)",
+                  borderRadius:12,color:"#f1f5f9",fontWeight:600,fontSize:13,cursor:"pointer",
+                  textAlign:"left",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                <span><span style={{color:"#334155",marginRight:8,fontSize:11}}>{m.id}</span>{m.name}</span>
+                {cnt>0&&<span style={{background:"rgba(99,102,241,0.15)",color:"#818cf8",padding:"2px 9px",borderRadius:8,fontSize:12,fontWeight:700}}>{cnt}</span>}
+              </button>
+            );
+          })}
+        </div>
+      </div>}
 
       {/* Ma'lumot kiritish */}
-      {step === "capture" && (
-        <div style={{ padding: 20 }}>
-          <button onClick={() => setStep("mfy")} style={{ background: "none", border: "none",
-            color: "#6366f1", fontWeight: 600, fontSize: 14, cursor: "pointer",
-            padding: "0 0 14px", display: "flex", alignItems: "center", gap: 6 }}>← Orqaga</button>
+      {step==="capture"&&<div style={{padding:20}}>
+        <button onClick={()=>setStep("mfy")} style={{background:"none",border:"none",color:"#6366f1",fontWeight:600,fontSize:13,cursor:"pointer",padding:"0 0 16px",display:"flex",alignItems:"center",gap:4}}>← Orqaga</button>
 
-          {/* MFY badge */}
-          <div style={{ background: "linear-gradient(135deg,rgba(99,102,241,0.15),rgba(168,85,247,0.08))",
-            borderRadius: 18, padding: "16px 20px", marginBottom: 24,
-            border: "1.5px solid rgba(99,102,241,0.2)" }}>
-            <div style={{ color: "#818cf8", fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1.5 }}>Tanlangan MFY</div>
-            <div style={{ color: "#f1f5f9", fontSize: 20, fontWeight: 800, marginTop: 4 }}>{mfy?.name}</div>
-            {coords && <div style={{ color: "#64748b", fontSize: 11, marginTop: 6 }}>📍 {coords.lat}, {coords.lng}</div>}
-          </div>
-
-          <div style={{ display: "flex", flexDirection: "column", gap: 22 }}>
-            {/* FIO */}
-            <div>
-              <label style={{ color: "#94a3b8", fontSize: 13, fontWeight: 600, display: "block", marginBottom: 8 }}>
-                👤 F.I.O (to'liq ism)
-              </label>
-              <input value={name} onChange={e => setName(e.target.value)}
-                placeholder="Ism sharifni kiriting" style={inp} />
-            </div>
-
-            {/* Yuz rasmi */}
-            <div>
-              <label style={{ color: "#94a3b8", fontSize: 13, fontWeight: 600, display: "block", marginBottom: 10 }}>
-                🤳 Fuqaro yuz rasmi
-                {face && <span style={{ color: "#10b981", marginLeft: 8, fontSize: 12 }}>✓</span>}
-              </label>
-              <Camera onCapture={setFace} label="Yuz rasmini olish" icon="🤳" />
-            </div>
-
-            {/* Pasport */}
-            <div>
-              <label style={{ color: "#94a3b8", fontSize: 13, fontWeight: 600, display: "block", marginBottom: 4 }}>
-                📄 Pasport skaneri — avtomatik
-                {passport && <span style={{ color: "#10b981", marginLeft: 8, fontSize: 12 }}>✓</span>}
-              </label>
-              <p style={{ color: "#475569", fontSize: 11, margin: "0 0 10px" }}>
-                Pasportni kameraga tutib turing — o'zi topadi
-              </p>
-              {passport ? (
-                <div style={{ position: "relative" }}>
-                  <img src={passport} alt="pasport" style={{ width: "100%", borderRadius: 14, border: "2.5px solid #10b981" }} />
-                  <div style={{ position: "absolute", top: 10, right: 10, background: "linear-gradient(135deg,#10b981,#059669)",
-                    color: "#fff", borderRadius: 20, padding: "5px 14px", fontSize: 12, fontWeight: 700 }}>✓ Tayyor</div>
-                  <button onClick={() => { setPassport(null); setJshshir(""); }} style={{
-                    marginTop: 10, width: "100%", padding: 11, background: "rgba(239,68,68,0.08)",
-                    color: "#ef4444", border: "1.5px solid rgba(239,68,68,0.3)", borderRadius: 12,
-                    fontWeight: 600, fontSize: 14, cursor: "pointer" }}>🔄 Qayta skanerlash</button>
-                </div>
-              ) : (
-                <PassportScanner onFound={onPassportFound} />
-              )}
-            </div>
-
-            {/* JShShIR */}
-            <div>
-              <label style={{ color: "#94a3b8", fontSize: 13, fontWeight: 600, display: "block", marginBottom: 8 }}>
-                🔢 JShShIR (14 raqam)
-                {jshshir.length === 14 && <span style={{ color: "#10b981", marginLeft: 8, fontSize: 12 }}>✓ to'g'ri</span>}
-              </label>
-              <input value={jshshir}
-                onChange={e => { if (/^\d{0,14}$/.test(e.target.value)) setJshshir(e.target.value); }}
-                placeholder="Avtomatik yoki qo'lda kiriting" maxLength={14}
-                style={{ ...inp, fontSize: 18, letterSpacing: 3, fontFamily: "monospace", fontWeight: 700,
-                  background: jshshir.length === 14 ? "rgba(16,185,129,0.07)" : "rgba(15,23,42,0.6)",
-                  border: jshshir.length === 14 ? "2px solid rgba(16,185,129,0.4)" : "1.5px solid rgba(99,102,241,0.2)" }} />
-              {jshshir && jshshir.length < 14 && (
-                <div style={{ color: "#f59e0b", fontSize: 11, marginTop: 6 }}>
-                  {14 - jshshir.length} ta raqam qoldi
-                </div>
-              )}
-            </div>
-
-            {/* Progress */}
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 6 }}>
-              {[
-                { ok: !!name.trim(), label: "FIO" },
-                { ok: !!face,        label: "Yuz" },
-                { ok: !!passport,    label: "Pasport" },
-                { ok: jshshir.length === 14, label: "JSHSHIR" },
-              ].map((s, i) => (
-                <div key={i} style={{ textAlign: "center" }}>
-                  <div style={{ height: 4, borderRadius: 4, marginBottom: 5,
-                    background: s.ok ? "#10b981" : "rgba(99,102,241,0.15)",
-                    transition: "background 0.3s" }} />
-                  <div style={{ fontSize: 10, color: s.ok ? "#10b981" : "#475569", fontWeight: 600 }}>
-                    {s.ok ? "✓" : "○"} {s.label}
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            {/* Submit */}
-            <button onClick={submit}
-              disabled={sending || !face || !passport || !name.trim() || jshshir.length !== 14}
-              style={{ padding: 17, border: "none", borderRadius: 16, fontWeight: 800,
-                fontSize: 16, cursor: "pointer", color: "#fff", transition: "all 0.2s",
-                background: (!face || !passport || !name.trim() || jshshir.length !== 14)
-                  ? "rgba(51,65,85,0.5)"
-                  : sending ? "#475569" : "linear-gradient(135deg,#10b981,#059669)",
-                opacity: (!face || !passport || !name.trim() || jshshir.length !== 14) ? 0.4 : 1,
-                boxShadow: (face && passport && jshshir.length === 14 && !sending)
-                  ? "0 6px 24px rgba(16,185,129,0.35)" : "none" }}>
-              {sending ? "⏳ Saqlanmoqda..." : "✅ Ma'lumotni yuborish"}
-            </button>
-          </div>
+        {/* MFY badge */}
+        <div style={{background:"rgba(99,102,241,0.08)",borderRadius:16,padding:"14px 18px",marginBottom:22,border:"1px solid rgba(99,102,241,0.15)"}}>
+          <div style={{color:"#6366f1",fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:1.5}}>Tanlangan MFY</div>
+          <div style={{fontSize:17,fontWeight:800,marginTop:3}}>{mfy?.name}</div>
+          {coords&&<div style={{color:"#475569",fontSize:11,marginTop:4}}>📍 {coords.lat}, {coords.lng}</div>}
         </div>
-      )}
 
-      <style>{`
-        @keyframes slideUp{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:none}}
-        @keyframes popIn{0%{transform:scale(0.5);opacity:0}70%{transform:scale(1.1)}100%{transform:scale(1);opacity:1}}
-        @keyframes scanLine{0%{top:8%}50%{top:82%}100%{top:8%}}
-        @keyframes spin{to{transform:rotate(360deg)}}
-        @keyframes pulseFade{0%{opacity:1}100%{opacity:0}}
-      `}</style>
+        {/* Progress steps */}
+        <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:6,marginBottom:24}}>
+          {steps.map((s,i)=>(
+            <div key={i} style={{textAlign:"center"}}>
+              <div style={{height:3,borderRadius:3,marginBottom:5,transition:"background .4s",
+                background:s.ok?"#22c55e":"rgba(255,255,255,0.08)"}}/>
+              <div style={{fontSize:10,fontWeight:600,color:s.ok?"#22c55e":"#334155"}}>{s.ok?"✓":i+1} {s.l}</div>
+            </div>
+          ))}
+        </div>
+
+        <div style={{display:"flex",flexDirection:"column",gap:20}}>
+          {/* FIO */}
+          <div>
+            <label style={lbl}>👤 F.I.O (to'liq ism)</label>
+            <input value={name} onChange={e=>setName(e.target.value)} placeholder="Ism sharifni kiriting"
+              style={inputSt(!!name.trim())}/>
+          </div>
+
+          {/* Yuz */}
+          <div>
+            <label style={lbl}>🤳 Fuqaro yuz rasmi {face&&<span style={{color:"#22c55e",marginLeft:6}}>✓</span>}</label>
+            <Camera onCapture={setFace}/>
+          </div>
+
+          {/* Pasport skaner */}
+          <div>
+            <label style={lbl}>📄 Hujjat skaneri (ID karta yoki Zagranpassport) {passport&&<span style={{color:"#22c55e",marginLeft:6}}>✓</span>}</label>
+            <p style={{color:"#334155",fontSize:11,margin:"4px 0 10px"}}>Hujjatni kameraga tutsangiz avtomatik o'qiladi</p>
+            {passport?(
+              <div style={{position:"relative"}}>
+                <img src={passport} alt="" style={{width:"100%",borderRadius:14,border:"2px solid #22c55e"}}/>
+                <div style={{position:"absolute",top:10,right:10,background:"#22c55e",color:"#fff",borderRadius:20,padding:"4px 12px",fontSize:12,fontWeight:700}}>✓ Aniqlandi</div>
+                <button onClick={()=>{setPassport(null);setJshshir("");}} style={{marginTop:8,width:"100%",padding:10,background:"rgba(239,68,68,0.07)",color:"#ef4444",border:"1px solid rgba(239,68,68,0.2)",borderRadius:11,fontWeight:600,fontSize:13,cursor:"pointer"}}>🔄 Qayta skanerlash</button>
+              </div>
+            ):(
+              <PassportScanner onFound={onPassport}/>
+            )}
+          </div>
+
+          {/* JSHSHIR */}
+          <div>
+            <label style={lbl}>🔢 JShShIR — 14 raqam {jshshir.length===14&&<span style={{color:"#22c55e",marginLeft:6}}>✓ to'g'ri</span>}</label>
+            <input value={jshshir} onChange={e=>{if(/^\d{0,14}$/.test(e.target.value))setJshshir(e.target.value);}}
+              placeholder="Avtomatik yoki qo'lda" maxLength={14}
+              style={{...inputSt(jshshir.length===14),fontSize:18,letterSpacing:3,fontFamily:"monospace",fontWeight:700}}/>
+            {jshshir&&jshshir.length<14&&<div style={{color:"#f59e0b",fontSize:11,marginTop:5}}>{14-jshshir.length} ta raqam qoldi</div>}
+          </div>
+
+          {/* Submit */}
+          <button onClick={submit} disabled={sending||!allOk}
+            style={{padding:16,border:"none",borderRadius:16,fontWeight:800,fontSize:15,cursor:!allOk||sending?"default":"pointer",
+              color:"#fff",transition:"all .2s",
+              background:allOk&&!sending?"linear-gradient(135deg,#22c55e,#16a34a)":"rgba(255,255,255,0.05)",
+              opacity:!allOk||sending?.5:1,
+              boxShadow:allOk&&!sending?"0 8px 24px rgba(34,197,94,0.3)":"none"}}>
+            {sending?"⏳ Saqlanmoqda...":"✅ Ma'lumotni yuborish"}
+          </button>
+        </div>
+      </div>}
     </div>
   );
 }
 
+const lbl={color:"#64748b",fontSize:12,fontWeight:700,display:"block",marginBottom:8,textTransform:"uppercase",letterSpacing:.6};
+const inputSt=ok=>({width:"100%",padding:"13px 16px",
+  background:ok?"rgba(34,197,94,0.06)":"rgba(255,255,255,0.04)",
+  border:`1.5px solid ${ok?"rgba(34,197,94,0.3)":"rgba(255,255,255,0.07)"}`,
+  borderRadius:13,color:"#f1f5f9",fontSize:15,outline:"none",boxSizing:"border-box",
+  fontFamily:"inherit",transition:"all .2s"});
+
 // ─── Boshliq ──────────────────────────────────────────────────────────────────
 function Boshliq({ user, records, onLogout }) {
-  const [hodimFilter, setHodimFilter] = useState(null);
-  const [mfyFilter,   setMfyFilter]   = useState(null);
-  const [dateFilter,  setDateFilter]  = useState("all");
-  const [search,      setSearch]      = useState("");
-  const [detail,      setDetail]      = useState(null);
-  const [tab,         setTab]         = useState("records");
+  const [hFilter,setHFilter]=useState(null);
+  const [mFilter,setMFilter]=useState(null);
+  const [dateF,setDateF]=useState("all");
+  const [search,setSearch]=useState("");
+  const [detail,setDetail]=useState(null);
 
-  const hodimlar = Object.entries(USERS).filter(([, u]) => u.role === "hodim");
+  const hodimlar=Object.entries(USERS).filter(([,u])=>u.role==="hodim");
+  const todayAll=records.filter(r=>fmtDate(new Date(r.timestamp))===todayStr()).length;
 
-  const filtered = records.filter(r => {
-    if (hodimFilter && r.hodim !== hodimFilter) return false;
-    if (mfyFilter   && r.mfy?.id !== mfyFilter) return false;
-    if (dateFilter === "today" && fmtDate(new Date(r.timestamp)) !== todayStr()) return false;
-    if (dateFilter === "week") {
-      const d = new Date(); d.setDate(d.getDate() - 7);
-      if (new Date(r.timestamp) < d) return false;
-    }
-    if (search) {
-      const q = search.toLowerCase();
-      if (!r.fullName?.toLowerCase().includes(q) && !r.jshshir?.includes(q) && !r.mfy?.name?.toLowerCase().includes(q))
-        return false;
-    }
+  const filtered=records.filter(r=>{
+    if(hFilter&&r.hodim!==hFilter) return false;
+    if(mFilter&&r.mfy?.id!==mFilter) return false;
+    if(dateF==="today"&&fmtDate(new Date(r.timestamp))!==todayStr()) return false;
+    if(dateF==="week"){const d=new Date();d.setDate(d.getDate()-7);if(new Date(r.timestamp)<d)return false;}
+    if(search){const q=search.toLowerCase();if(!r.fullName?.toLowerCase().includes(q)&&!r.jshshir?.includes(q)&&!r.mfy?.name?.toLowerCase().includes(q))return false;}
     return true;
   });
 
-  const exportCSV = () => {
-    const headers = ["#","Ism","JSHSHIR","MFY","Hodim","Sana","Vaqt","Joylashuv"];
-    const rows = records.map((r, i) => [
-      i + 1, r.fullName, r.jshshir, r.mfy?.name, r.hodimName,
-      fmtDate(r.timestamp), fmt(r.timestamp),
-      `${r.coords?.lat},${r.coords?.lng}`
-    ]);
-    const csv = [headers, ...rows].map(r => r.map(v => `"${v}"`).join(",")).join("\n");
-    const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8" });
-    const url  = URL.createObjectURL(blob);
-    const a    = document.createElement("a");
-    a.href = url; a.download = `mfy_${todayStr().replace(/\./g, "-")}.csv`;
-    a.click(); URL.revokeObjectURL(url);
+  const exportCSV=()=>{
+    const h=["#","Ism","JSHSHIR","MFY","Hodim","Sana","Vaqt","Joylashuv"];
+    const rows=records.map((r,i)=>[i+1,r.fullName,r.jshshir,r.mfy?.name,r.hodimName,fmtDate(r.timestamp),fmt(r.timestamp),`${r.coords?.lat},${r.coords?.lng}`]);
+    const csv=[h,...rows].map(r=>r.map(v=>`"${v||""}"`).join(",")).join("\n");
+    const a=document.createElement("a");
+    a.href=URL.createObjectURL(new Blob(["﻿"+csv],{type:"text/csv;charset=utf-8"}));
+    a.download=`mfy_${todayStr().replace(/\./g,"-")}.csv`; a.click();
   };
 
-  const todayAll = records.filter(r => fmtDate(new Date(r.timestamp)) === todayStr()).length;
-  const maxToday = Math.max(1, ...hodimlar.map(([un]) =>
-    records.filter(r => r.hodim === un && fmtDate(new Date(r.timestamp)) === todayStr()).length
-  ));
-
-  if (detail) return (
-    <div style={{ minHeight: "100vh", background: "linear-gradient(180deg,#0a0f1a,#111827)",
-      fontFamily: "'Segoe UI',system-ui,sans-serif" }}>
-      <div style={{ background: "rgba(17,24,39,0.95)", backdropFilter: "blur(12px)",
-        padding: "14px 20px", borderBottom: "1px solid rgba(99,102,241,0.12)",
-        position: "sticky", top: 0, zIndex: 50 }}>
-        <button onClick={() => setDetail(null)} style={{ background: "none", border: "none",
-          color: "#6366f1", fontWeight: 600, fontSize: 14, cursor: "pointer", padding: 0 }}>← Orqaga</button>
+  if(detail) return (
+    <div style={{minHeight:"100vh",background:"#0b1220",fontFamily:"'Segoe UI',system-ui,sans-serif",color:"#f1f5f9"}}>
+      <div style={{background:"rgba(15,23,42,0.96)",backdropFilter:"blur(12px)",padding:"14px 20px",borderBottom:"1px solid rgba(255,255,255,0.05)",position:"sticky",top:0,zIndex:50}}>
+        <button onClick={()=>setDetail(null)} style={{background:"none",border:"none",color:"#6366f1",fontWeight:600,fontSize:14,cursor:"pointer",padding:0}}>← Orqaga</button>
       </div>
-      <div style={{ padding: 20, display: "flex", flexDirection: "column", gap: 18 }}>
-        <div style={{ background: "rgba(17,24,39,0.8)", borderRadius: 20, padding: "22px 20px",
-          border: "1.5px solid rgba(99,102,241,0.15)" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start",
-            marginBottom: 16, flexWrap: "wrap", gap: 10 }}>
+      <div style={{padding:20,display:"flex",flexDirection:"column",gap:16}}>
+        <div style={{background:"rgba(255,255,255,0.03)",borderRadius:20,padding:"20px 18px",border:"1px solid rgba(255,255,255,0.06)"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:14,flexWrap:"wrap",gap:8}}>
             <div>
-              <div style={{ color: "#f1f5f9", fontWeight: 800, fontSize: 22 }}>{detail.fullName}</div>
-              <div style={{ color: "#64748b", fontSize: 14, marginTop: 4 }}>
-                JShShIR: <span style={{ color: "#818cf8", fontFamily: "monospace",
-                  fontWeight: 700, letterSpacing: 2, fontSize: 15 }}>{detail.jshshir}</span>
-              </div>
+              <div style={{fontWeight:800,fontSize:20}}>{detail.fullName}</div>
+              <div style={{color:"#6366f1",fontFamily:"monospace",fontSize:14,letterSpacing:2,marginTop:4}}>{detail.jshshir}</div>
             </div>
-            <div style={{ background: "rgba(99,102,241,0.15)", color: "#a5b4fc",
-              padding: "7px 14px", borderRadius: 10, fontSize: 13, fontWeight: 700 }}>
-              {detail.mfy?.name}
-            </div>
+            <span style={{background:"rgba(99,102,241,0.12)",color:"#a5b4fc",padding:"6px 12px",borderRadius:10,fontSize:12,fontWeight:700}}>{detail.mfy?.name}</span>
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, fontSize: 13 }}>
-            {[
-              ["📅", fmtDate(new Date(detail.timestamp))],
-              ["🕐", fmt(detail.timestamp)],
-              ["👤", detail.hodimName],
-              ["📍", `${detail.coords?.lat}, ${detail.coords?.lng}`],
-            ].map(([icon, val], i) => (
-              <div key={i} style={{ padding: "10px 12px", background: "rgba(15,23,42,0.5)",
-                borderRadius: 10, color: "#94a3b8" }}>
-                {icon} {val}
-              </div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,fontSize:12,color:"#64748b"}}>
+            {[["📅",fmtDate(new Date(detail.timestamp))],["🕐",fmt(detail.timestamp)],["👤",detail.hodimName],["📍",`${detail.coords?.lat}, ${detail.coords?.lng}`]].map(([i,v],k)=>(
+              <div key={k} style={{padding:"8px 12px",background:"rgba(255,255,255,0.03)",borderRadius:10}}>{i} {v}</div>
             ))}
           </div>
         </div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
-          {[["🤳 Yuz rasmi", detail.facePhoto], ["📄 Pasport", detail.passportPhoto]].map(([lbl, src]) => (
-            <div key={lbl}>
-              <div style={{ color: "#94a3b8", fontSize: 13, fontWeight: 600, marginBottom: 10 }}>{lbl}</div>
-              <img src={src} alt={lbl} style={{ width: "100%", borderRadius: 16,
-                border: "2px solid rgba(99,102,241,0.2)", boxShadow: "0 4px 16px rgba(0,0,0,0.3)" }} />
-            </div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+          {[["🤳 Yuz",detail.facePhoto],["📄 Hujjat",detail.passportPhoto]].map(([l,s])=>(
+            <div key={l}><div style={{color:"#64748b",fontSize:12,fontWeight:600,marginBottom:8}}>{l}</div>
+            <img src={s} alt={l} style={{width:"100%",borderRadius:14,border:"1px solid rgba(255,255,255,0.08)"}}/></div>
           ))}
         </div>
       </div>
@@ -879,70 +765,52 @@ function Boshliq({ user, records, onLogout }) {
   );
 
   return (
-    <div style={{ minHeight: "100vh", background: "linear-gradient(180deg,#0a0f1a,#111827)",
-      fontFamily: "'Segoe UI',system-ui,sans-serif" }}>
-
+    <div style={{minHeight:"100vh",background:"#0b1220",fontFamily:"'Segoe UI',system-ui,sans-serif",color:"#f1f5f9"}}>
       {/* Header */}
-      <div style={{ background: "rgba(17,24,39,0.95)", backdropFilter: "blur(12px)",
-        padding: "14px 20px", display: "flex", justifyContent: "space-between",
-        alignItems: "center", borderBottom: "1px solid rgba(99,102,241,0.12)",
-        position: "sticky", top: 0, zIndex: 50 }}>
+      <div style={{background:"rgba(15,23,42,0.96)",backdropFilter:"blur(12px)",padding:"14px 20px",
+        display:"flex",justifyContent:"space-between",alignItems:"center",
+        borderBottom:"1px solid rgba(255,255,255,0.05)",position:"sticky",top:0,zIndex:50}}>
         <div>
-          <div style={{ color: "#f1f5f9", fontWeight: 700, fontSize: 16 }}>👑 Boshliq paneli</div>
-          <div style={{ color: "#a855f7", fontSize: 12, fontWeight: 600 }}>
-            Jami: {records.length} • Bugun: {todayAll}
-          </div>
+          <div style={{fontWeight:700,fontSize:15}}>👑 Boshqaruv paneli</div>
+          <div style={{color:"#8b5cf6",fontSize:11,fontWeight:600,marginTop:1}}>Jami: {records.length} • Bugun: {todayAll}</div>
         </div>
-        <div style={{ display: "flex", gap: 8 }}>
-          <button onClick={exportCSV} style={{ padding: "8px 14px", background: "rgba(16,185,129,0.1)",
-            color: "#10b981", border: "1.5px solid rgba(16,185,129,0.25)",
-            borderRadius: 11, fontWeight: 600, fontSize: 12, cursor: "pointer" }}>
-            ⬇ Excel
-          </button>
-          <button onClick={onLogout} style={{ padding: "8px 14px", background: "rgba(239,68,68,0.1)",
-            color: "#ef4444", border: "1.5px solid rgba(239,68,68,0.25)",
-            borderRadius: 11, fontWeight: 600, fontSize: 13, cursor: "pointer" }}>Chiqish</button>
+        <div style={{display:"flex",gap:8}}>
+          <button onClick={exportCSV} style={{padding:"7px 14px",background:"rgba(34,197,94,0.08)",color:"#22c55e",border:"1px solid rgba(34,197,94,0.2)",borderRadius:10,fontWeight:600,fontSize:12,cursor:"pointer"}}>⬇ Excel</button>
+          <button onClick={onLogout} style={{padding:"7px 14px",background:"rgba(239,68,68,0.08)",color:"#ef4444",border:"1px solid rgba(239,68,68,0.2)",borderRadius:10,fontWeight:600,fontSize:13,cursor:"pointer"}}>Chiqish</button>
         </div>
       </div>
 
       {/* Stats */}
-      <div style={{ padding: "18px 20px 0", display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
-        {[
-          { l: "Jami",  v: records.length, c: "#6366f1", i: "📊" },
-          { l: "Bugun", v: todayAll,        c: "#10b981", i: "📅" },
-          { l: "MFY",   v: [...new Set(records.map(r => r.mfy?.id))].filter(Boolean).length, c: "#f59e0b", i: "🏘️" },
-        ].map((s, i) => (
-          <div key={i} style={{ background: `rgba(${s.c === "#6366f1" ? "99,102,241" : s.c === "#10b981" ? "16,185,129" : "245,158,11"},0.08)`,
-            borderRadius: 16, padding: "14px 10px", border: `1.5px solid ${s.c}22`, textAlign: "center" }}>
-            <div style={{ fontSize: 20 }}>{s.i}</div>
-            <div style={{ color: s.c, fontSize: 30, fontWeight: 900 }}>{s.v}</div>
-            <div style={{ color: "#64748b", fontSize: 11, fontWeight: 600 }}>{s.l}</div>
+      <div style={{padding:"16px 20px 0",display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10}}>
+        {[["📊","Jami",records.length,"#6366f1"],["📅","Bugun",todayAll,"#22c55e"],["🏘️","MFY",[...new Set(records.map(r=>r.mfy?.id))].filter(Boolean).length,"#f59e0b"]].map(([icon,l,v,c],i)=>(
+          <div key={i} style={{background:`${c}0d`,borderRadius:16,padding:"14px 10px",border:`1px solid ${c}22`,textAlign:"center"}}>
+            <div style={{fontSize:20}}>{icon}</div>
+            <div style={{color:c,fontSize:28,fontWeight:900}}>{v}</div>
+            <div style={{color:"#475569",fontSize:11,fontWeight:600}}>{l}</div>
           </div>
         ))}
       </div>
 
-      {/* Hodim progress */}
-      <div style={{ padding: "18px 20px 0" }}>
-        <h3 style={{ color: "#f1f5f9", fontSize: 15, fontWeight: 800, margin: "0 0 12px" }}>👥 Hodimlar faolligi (bugun)</h3>
-        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          {hodimlar.map(([un, ud]) => {
-            const todayCnt = records.filter(r => r.hodim === un && fmtDate(new Date(r.timestamp)) === todayStr()).length;
-            const totalCnt = records.filter(r => r.hodim === un).length;
-            const pct = Math.round((todayCnt / maxToday) * 100);
-            return (
-              <button key={un} onClick={() => { setHodimFilter(hodimFilter === un ? null : un); setTab("records"); }}
-                style={{ padding: "12px 14px", background: hodimFilter === un ? "rgba(99,102,241,0.12)" : "rgba(17,24,39,0.5)",
-                  border: hodimFilter === un ? "1.5px solid rgba(99,102,241,0.35)" : "1.5px solid rgba(99,102,241,0.1)",
-                  borderRadius: 14, cursor: "pointer", textAlign: "left" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
-                  <span style={{ color: "#f1f5f9", fontWeight: 700, fontSize: 14 }}>{ud.name}</span>
-                  <span style={{ color: "#64748b", fontSize: 12 }}>
-                    Bugun: <b style={{ color: "#10b981" }}>{todayCnt}</b> • Jami: <b style={{ color: "#818cf8" }}>{totalCnt}</b>
-                  </span>
+      {/* Hodimlar */}
+      <div style={{padding:"16px 20px 0"}}>
+        <div style={{color:"#475569",fontSize:11,fontWeight:700,textTransform:"uppercase",letterSpacing:.8,marginBottom:10}}>Hodimlar (bugun)</div>
+        <div style={{display:"flex",flexDirection:"column",gap:6}}>
+          {hodimlar.map(([un,ud])=>{
+            const today=records.filter(r=>r.hodim===un&&fmtDate(new Date(r.timestamp))===todayStr()).length;
+            const total=records.filter(r=>r.hodim===un).length;
+            const max=Math.max(1,...hodimlar.map(([u])=>records.filter(r=>r.hodim===u&&fmtDate(new Date(r.timestamp))===todayStr()).length));
+            return(
+              <button key={un} onClick={()=>setHFilter(hFilter===un?null:un)}
+                style={{padding:"12px 14px",background:hFilter===un?"rgba(99,102,241,0.1)":"rgba(255,255,255,0.03)",
+                  border:hFilter===un?"1px solid rgba(99,102,241,0.3)":"1px solid rgba(255,255,255,0.05)",
+                  borderRadius:14,cursor:"pointer",textAlign:"left"}}>
+                <div style={{display:"flex",justifyContent:"space-between",marginBottom:8}}>
+                  <span style={{color:"#f1f5f9",fontWeight:600,fontSize:13}}>{ud.name}</span>
+                  <span style={{color:"#475569",fontSize:12}}>Bugun <b style={{color:"#22c55e"}}>{today}</b> · Jami <b style={{color:"#818cf8"}}>{total}</b></span>
                 </div>
-                <div style={{ height: 6, background: "rgba(99,102,241,0.1)", borderRadius: 6, overflow: "hidden" }}>
-                  <div style={{ height: "100%", width: `${pct}%`, borderRadius: 6, transition: "width 0.6s ease",
-                    background: todayCnt > 0 ? "linear-gradient(90deg,#6366f1,#10b981)" : "transparent" }} />
+                <div style={{height:4,background:"rgba(255,255,255,0.06)",borderRadius:4,overflow:"hidden"}}>
+                  <div style={{height:"100%",width:`${Math.round(today/max*100)}%`,borderRadius:4,transition:"width .6s",
+                    background:today>0?"linear-gradient(90deg,#6366f1,#22c55e)":"transparent"}}/>
                 </div>
               </button>
             );
@@ -950,99 +818,47 @@ function Boshliq({ user, records, onLogout }) {
         </div>
       </div>
 
-      {/* Filters + Search */}
-      <div style={{ padding: "16px 20px 0" }}>
-        {/* Search */}
-        <div style={{ position: "relative", marginBottom: 12 }}>
-          <span style={{ position: "absolute", left: 14, top: "50%", transform: "translateY(-50%)", fontSize: 16 }}>🔍</span>
-          <input value={search} onChange={e => setSearch(e.target.value)}
-            placeholder="Ism, JSHSHIR yoki MFY qidirish..."
-            style={{ width: "100%", padding: "12px 14px 12px 42px", background: "rgba(15,23,42,0.6)",
-              border: "1.5px solid rgba(99,102,241,0.2)", borderRadius: 13, color: "#f1f5f9",
-              fontSize: 14, outline: "none", boxSizing: "border-box" }} />
+      {/* Filter */}
+      <div style={{padding:"14px 20px 0"}}>
+        <div style={{position:"relative",marginBottom:10}}>
+          <span style={{position:"absolute",left:12,top:"50%",transform:"translateY(-50%)",color:"#475569",fontSize:14}}>🔍</span>
+          <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Ism, JSHSHIR yoki MFY..."
+            style={{width:"100%",padding:"11px 14px 11px 38px",background:"rgba(255,255,255,0.04)",
+              border:"1px solid rgba(255,255,255,0.07)",borderRadius:12,color:"#f1f5f9",fontSize:13,outline:"none",boxSizing:"border-box"}}/>
         </div>
-
-        {/* Date filter */}
-        <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
-          {[["all","Barchasi"],["today","Bugun"],["week","Hafta"]].map(([v, l]) => (
-            <button key={v} onClick={() => setDateFilter(v)} style={{
-              padding: "7px 16px", border: "none", borderRadius: 10, fontWeight: 600,
-              fontSize: 12, cursor: "pointer",
-              background: dateFilter === v ? "linear-gradient(135deg,#6366f1,#8b5cf6)" : "rgba(17,24,39,0.5)",
-              color: dateFilter === v ? "#fff" : "#94a3b8" }}>
-              {l}
-            </button>
+        <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+          {[["all","Barchasi"],["today","Bugun"],["week","Hafta"]].map(([v,l])=>(
+            <button key={v} onClick={()=>setDateF(v)} style={{padding:"6px 14px",border:"none",borderRadius:9,fontWeight:600,fontSize:12,cursor:"pointer",
+              background:dateF===v?"linear-gradient(135deg,#6366f1,#8b5cf6)":"rgba(255,255,255,0.05)",color:dateF===v?"#fff":"#64748b"}}>{l}</button>
           ))}
-          {hodimFilter && (
-            <button onClick={() => setHodimFilter(null)} style={{
-              padding: "7px 14px", background: "rgba(239,68,68,0.1)", color: "#ef4444",
-              border: "1px solid rgba(239,68,68,0.2)", borderRadius: 10,
-              fontWeight: 600, fontSize: 12, cursor: "pointer" }}>
-              ✕ {USERS[hodimFilter]?.name}
-            </button>
-          )}
+          {hFilter&&<button onClick={()=>setHFilter(null)} style={{padding:"6px 12px",background:"rgba(239,68,68,0.08)",color:"#ef4444",border:"1px solid rgba(239,68,68,0.2)",borderRadius:9,fontWeight:600,fontSize:11,cursor:"pointer"}}>✕ {USERS[hFilter]?.name}</button>}
         </div>
       </div>
 
-      {/* MFY chips */}
-      {records.length > 0 && (
-        <div style={{ paddingLeft: 20, paddingRight: 20, paddingBottom: 8 }}>
-          <div style={{ display: "flex", gap: 6, overflowX: "auto", paddingBottom: 4 }}>
-            <button onClick={() => setMfyFilter(null)} style={{
-              padding: "6px 14px", border: "none", borderRadius: 10, fontSize: 11,
-              fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap", flexShrink: 0,
-              background: !mfyFilter ? "linear-gradient(135deg,#6366f1,#8b5cf6)" : "rgba(17,24,39,0.5)",
-              color: !mfyFilter ? "#fff" : "#94a3b8" }}>Barcha MFY</button>
-            {[...new Set(records.map(r => r.mfy?.id))].filter(Boolean).sort((a,b)=>a-b).map(id => (
-              <button key={id} onClick={() => setMfyFilter(id === mfyFilter ? null : id)} style={{
-                padding: "6px 12px", fontSize: 11, fontWeight: 600, cursor: "pointer",
-                whiteSpace: "nowrap", flexShrink: 0, borderRadius: 10,
-                background: mfyFilter === id ? "linear-gradient(135deg,#6366f1,#8b5cf6)" : "rgba(17,24,39,0.5)",
-                color: mfyFilter === id ? "#fff" : "#94a3b8",
-                border: mfyFilter === id ? "none" : "1.5px solid rgba(99,102,241,0.1)" }}>
-                {MFY_LIST.find(m => m.id === id)?.name?.split(" ")[0]} ({records.filter(r => r.mfy?.id === id).length})
-              </button>
-            ))}
-          </div>
+      {/* Yozuvlar */}
+      <div style={{padding:"12px 20px 32px"}}>
+        <div style={{color:"#334155",fontSize:11,fontWeight:700,textTransform:"uppercase",letterSpacing:.8,marginBottom:10}}>
+          Yozuvlar ({filtered.length})
         </div>
-      )}
-
-      {/* Records */}
-      <div style={{ padding: "8px 20px 32px" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-          <h3 style={{ color: "#f1f5f9", fontSize: 15, fontWeight: 800, margin: 0 }}>
-            📋 Yozuvlar <span style={{ color: "#475569", fontWeight: 500 }}>({filtered.length})</span>
-          </h3>
-        </div>
-
-        {filtered.length === 0 ? (
-          <div style={{ textAlign: "center", padding: 48, color: "#374151" }}>
-            <div style={{ fontSize: 48, marginBottom: 14 }}>📭</div>
-            <div style={{ fontWeight: 600, fontSize: 15, color: "#475569" }}>Yozuvlar topilmadi</div>
+        {filtered.length===0?(
+          <div style={{textAlign:"center",padding:48,color:"#1e293b"}}>
+            <div style={{fontSize:40,marginBottom:12}}>📭</div>
+            <div style={{fontWeight:600,color:"#334155"}}>Yozuvlar topilmadi</div>
           </div>
-        ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {[...filtered].reverse().map((r, idx) => (
-              <button key={r.id} onClick={() => setDetail(r)} style={{
-                padding: "13px 14px", background: "rgba(17,24,39,0.6)",
-                border: "1.5px solid rgba(99,102,241,0.08)", borderRadius: 16,
-                cursor: "pointer", textAlign: "left", display: "flex", gap: 12,
-                alignItems: "center" }}>
-                <img src={r.facePhoto} alt="" style={{ width: 48, height: 48,
-                  borderRadius: 12, objectFit: "cover",
-                  border: "2px solid rgba(99,102,241,0.2)", flexShrink: 0 }} />
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ color: "#f1f5f9", fontWeight: 700, fontSize: 15,
-                    overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                    {r.fullName}
-                  </div>
-                  <div style={{ color: "#6366f1", fontFamily: "monospace", fontSize: 12,
-                    letterSpacing: 1, marginTop: 2 }}>{r.jshshir}</div>
-                  <div style={{ color: "#64748b", fontSize: 11, marginTop: 2 }}>
-                    {r.mfy?.name} · {r.hodimName} · {fmt(r.timestamp)}
-                  </div>
+        ):(
+          <div style={{display:"flex",flexDirection:"column",gap:6}}>
+            {[...filtered].reverse().map(r=>(
+              <button key={r.id} onClick={()=>setDetail(r)}
+                style={{padding:"12px 14px",background:"rgba(255,255,255,0.03)",
+                  border:"1px solid rgba(255,255,255,0.05)",borderRadius:14,
+                  cursor:"pointer",textAlign:"left",display:"flex",gap:12,alignItems:"center"}}>
+                <img src={r.facePhoto} alt="" style={{width:46,height:46,borderRadius:12,objectFit:"cover",border:"1px solid rgba(255,255,255,0.08)",flexShrink:0}}/>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontWeight:700,fontSize:14,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.fullName}</div>
+                  <div style={{color:"#6366f1",fontFamily:"monospace",fontSize:11,letterSpacing:1,marginTop:2}}>{r.jshshir}</div>
+                  <div style={{color:"#334155",fontSize:11,marginTop:2}}>{r.mfy?.name} · {r.hodimName} · {fmt(r.timestamp)}</div>
                 </div>
-                <span style={{ color: "#374151", fontSize: 20, fontWeight: 300, flexShrink: 0 }}>›</span>
+                <span style={{color:"#1e293b",fontSize:18}}>›</span>
               </button>
             ))}
           </div>
@@ -1054,20 +870,13 @@ function Boshliq({ user, records, onLogout }) {
 
 // ─── App ──────────────────────────────────────────────────────────────────────
 export default function App() {
-  const [user, setUser] = useState(null);
-  const [records, setRecords] = useState(() => {
-    try { return JSON.parse(localStorage.getItem("mfy_records") || "[]"); }
-    catch { return []; }
+  const [user,setUser]=useState(null);
+  const [records,setRecords]=useState(()=>{
+    try{return JSON.parse(localStorage.getItem("mfy_records")||"[]");}catch{return[];}
   });
+  const save=r=>{ setRecords(r); try{localStorage.setItem("mfy_records",JSON.stringify(r));}catch{} };
 
-  const saveRecords = recs => {
-    setRecords(recs);
-    try { localStorage.setItem("mfy_records", JSON.stringify(recs)); } catch {}
-  };
-
-  if (!user) return <Login onLogin={setUser} />;
-  if (user.role === "hodim") return (
-    <Hodim user={user} records={records} setRecords={saveRecords} onLogout={() => setUser(null)} />
-  );
-  return <Boshliq user={user} records={records} onLogout={() => setUser(null)} />;
+  if(!user) return <Login onLogin={setUser}/>;
+  if(user.role==="hodim") return <Hodim user={user} records={records} setRecords={save} onLogout={()=>setUser(null)}/>;
+  return <Boshliq user={user} records={records} onLogout={()=>setUser(null)}/>;
 }
