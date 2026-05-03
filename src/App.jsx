@@ -39,35 +39,52 @@ function PassportScanner({ onFound }) {
   const [active, setActive] = useState(false);
   const [pulse, setPulse]   = useState(false);
 
-  const cropPart = (canvas, yStart, yEnd) => {
-    const c = document.createElement("canvas");
-    c.width = canvas.width;
-    c.height = Math.floor(canvas.height * (yEnd - yStart));
-    c.getContext("2d").drawImage(canvas, 0, -canvas.height * yStart);
-    return c.toDataURL("image/jpeg", 0.88);
+  // Rasmni OCR uchun tayyorlash: crop + 2.5x scale + kontrast + PNG
+  const enhanceImg = (canvas, yStart, yEnd) => {
+    const sw = canvas.width, sh = canvas.height;
+    const cy = Math.floor(sh * yStart);
+    const ch = Math.floor(sh * (yEnd - yStart));
+    const SCALE = 2.5;
+    const out = document.createElement("canvas");
+    out.width  = Math.floor(sw * SCALE);
+    out.height = Math.floor(ch * SCALE);
+    const ctx = out.getContext("2d");
+    ctx.drawImage(canvas, 0, cy, sw, ch, 0, 0, out.width, out.height);
+    const img = ctx.getImageData(0, 0, out.width, out.height);
+    const d = img.data;
+    for (let i = 0; i < d.length; i += 4) {
+      // Kulrang + keskin kontrast
+      const g = 0.299 * d[i] + 0.587 * d[i+1] + 0.114 * d[i+2];
+      const v = g < 90  ? Math.max(0,   g - 30)
+              : g > 170 ? Math.min(255, g + 40)
+              : Math.round((g - 90) / 80 * 255);
+      d[i] = d[i+1] = d[i+2] = v;
+    }
+    ctx.putImageData(img, 0, 0);
+    return out.toDataURL("image/png"); // PNG — JPEG dan aniqroq
   };
 
   const tryFind = text => {
+    // "Personal number" yonidan qidirish
     const kw = text.match(/(?:personal\s*number|shaxsiy\s*raqam)[^\d]*(\d{14})/i);
     if (kw) return kw[1];
-    // MRZ qatorlarini olib tashlash (faqat katta harflar va < belgisi)
-    const noMrz = text.split("\n").filter(l => !(/^[A-Z0-9<]{10,}$/).test(l.trim())).join(" ");
-    const m = [...noMrz.replace(/\s/g, "").matchAll(/[1-6]\d{13}/g)];
-    return m.length ? m[0][0] : null;
+    // MRZ qatorlarini (faqat KATTA HARF + raqam + <) olib tashlab qidirish
+    const noMrz = text.split("\n")
+      .filter(l => !(/^[A-Z0-9<]{10,}$/).test(l.trim()))
+      .join(" ");
+    const hits = [...noMrz.replace(/\s/g, "").matchAll(/[1-6]\d{13}/g)];
+    return hits.length ? hits[0][0] : null;
   };
 
-  // MRZ qatoridan ism o'qish: "ADXAMJONOV<<DOSTONBEK<<<" → "Dostonbek Adxamjonov"
+  // MRZ: "ADXAMJONOV<<DOSTONBEK<<<" → "Dostonbek Adxamjonov"
   const parseName = text => {
-    const lines = text.split("\n").map(l => l.trim());
-    for (const line of lines) {
-      const m = line.match(/([A-Z]{2,})<<([A-Z]+)/);
-      if (m) {
-        const cap = s => s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
-        const surname  = cap(m[1]);
-        const firstname = cap(m[2]);
-        return `${firstname} ${surname}`;
-      }
-    }
+    const cap = s => s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
+    // To'liq MRZ qator
+    const m = text.replace(/\s/g, "").match(/([A-Z]{2,})<<([A-Z]{2,})/);
+    if (m) return `${cap(m[2])} ${cap(m[1])}`;
+    // Qisman o'qilgan holat
+    const m2 = text.match(/([A-Z]{3,})\s*<<+\s*([A-Z]{3,})/);
+    if (m2) return `${cap(m2[2])} ${cap(m2[1])}`;
     return null;
   };
 
@@ -78,16 +95,16 @@ function PassportScanner({ onFound }) {
     busyRef.current = true;
     c.width = v.videoWidth; c.height = v.videoHeight;
     c.getContext("2d").drawImage(v, 0, 0);
-    const photoUrl = c.toDataURL("image/jpeg", 0.75);
+    const photoUrl = c.toDataURL("image/jpeg", 0.8);
     try {
-      // JSHSHIR uchun yuqori qism, ism uchun pastki qism — parallel
-      const [topResult, botResult] = await Promise.all([
-        Tesseract.recognize(cropPart(c, 0, 0.65), "eng"),
-        Tesseract.recognize(cropPart(c, 0.60, 1.0), "eng"),
+      // Yuqori 65% → JSHSHIR,  Pastki 40% → Ism (MRZ) — parallel
+      const [topR, botR] = await Promise.all([
+        Tesseract.recognize(enhanceImg(c, 0,    0.65), "eng"),
+        Tesseract.recognize(enhanceImg(c, 0.58, 1.0),  "eng"),
       ]);
-      const jshshir = tryFind(topResult.data.text);
+      const jshshir = tryFind(topR.data.text);
       if (jshshir) {
-        const fullName = parseName(botResult.data.text);
+        const fullName = parseName(botR.data.text);
         foundRef.current = true;
         setPulse(true);
         streamRef.current?.getTracks().forEach(t => t.stop());
@@ -113,7 +130,7 @@ function PassportScanner({ onFound }) {
 
   useEffect(() => {
     if (!active) return;
-    const id = setInterval(scanFrame, 2500);
+    const id = setInterval(scanFrame, 1800);
     return () => clearInterval(id);
   }, [active]);
 
