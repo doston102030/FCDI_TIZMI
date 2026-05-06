@@ -1114,26 +1114,12 @@ function Landing({ onSelect }) {
 
       <div style={{ width: "100%", maxWidth: 320, display: "flex", flexDirection: "column", gap: 16 }}>
         <button onClick={() => onSelect("hodim")} style={{
-          padding: "18px", background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)",
-          borderRadius: 20, color: "#fff", fontSize: 16, fontWeight: 700, cursor: "pointer",
-          display: "flex", alignItems: "center", justifyContent: "space-between", transition: "all .3s"
+          padding: "20px", background: G.blue, border: "none",
+          borderRadius: 22, color: "#fff", fontSize: 18, fontWeight: 800, cursor: "pointer",
+          display: "flex", alignItems: "center", justifyContent: "center", gap: 12,
+          boxShadow: "0 20px 40px rgba(99,102,241,0.3)", transition: "all .3s"
         }}>
-          <span style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <span style={{ fontSize: 24 }}>👷</span> Hodim Paneli
-          </span>
-          <span style={{ opacity: 0.5 }}>→</span>
-        </button>
-
-        <button onClick={() => onSelect("admin_login")} style={{
-          padding: "18px", background: G.blue, border: "none",
-          borderRadius: 20, color: "#fff", fontSize: 16, fontWeight: 700, cursor: "pointer",
-          display: "flex", alignItems: "center", justifyContent: "space-between",
-          boxShadow: "0 10px 20px rgba(99,102,241,0.2)"
-        }}>
-          <span style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <span style={{ fontSize: 24 }}>🔐</span> Admin Kirish
-          </span>
-          <span>→</span>
+          🚀 Ishni Boshlash
         </button>
       </div>
 
@@ -1146,9 +1132,17 @@ function Landing({ onSelect }) {
 
 // ─── App ──────────────────────────────────────────────────────────────────────
 export default function App() {
-  const [view, setView] = useState("landing"); // landing, hodim, admin_login, admin_dashboard
+  const [view, setView] = useState("landing");
   const [user, setUser] = useState(null);
   const [records, setRecords] = useState([]);
+
+  // URL orqali Adminni aniqlash (?admin)
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.has("admin")) {
+      setView("admin_login");
+    }
+  }, []);
 
   // Firebase real-time
   useEffect(() => {
