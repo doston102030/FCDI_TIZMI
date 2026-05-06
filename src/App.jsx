@@ -99,12 +99,15 @@ const enhance = (canvas, y0, y1) => {
   // Kulrang + kontrast
   const img=ctx.getImageData(0,0,out.width,out.height), d=img.data;
   for (let i=0;i<d.length;i+=4) {
-    const g=0.299*d[i]+0.587*d[i+1]+0.114*d[i+2];
-    const v=g<105?Math.max(0,g*0.4):g>160?Math.min(255,g*1.3+15):(g-105)/55*255;
-    d[i]=d[i+1]=d[i+2]=Math.round(v);
+    const g = 0.299*d[i] + 0.587*d[i+1] + 0.114*d[i+2];
+    // Contrast stretching & simple thresholding logic
+    let v;
+    if (g < 110) v = 0;
+    else if (g > 180) v = 255;
+    else v = (g - 110) / 70 * 255;
+    d[i] = d[i+1] = d[i+2] = v;
   }
   ctx.putImageData(img,0,0);
-  // Sharpen (xira uchun)
   applySharpen(ctx, out.width, out.height);
   return out.toDataURL("image/png");
 };
@@ -317,7 +320,7 @@ function PassportScanner({ onFound }) {
 
   useEffect(()=>{
     if(!active) return;
-    const id=setInterval(scan,1800);
+    const id=setInterval(scan, 750); // Tezroq skanerlash
     return ()=>clearInterval(id);
   },[active]);
 
@@ -742,6 +745,7 @@ function Hodim({ user, records, onLogout }) {
           <div>
             <label style={{ color: C.muted, fontSize: 11, fontWeight: 700, textTransform: "uppercase", display: "block", marginBottom: 8 }}>JSHSHIR (14 ta raqam)</label>
             <input 
+              type="tel" inputMode="numeric" pattern="[0-9]*"
               value={jshshir} onChange={e => setJshshir(e.target.value.replace(/\D/g, "").slice(0, 14))}
               placeholder="50701..." 
               style={{ width: "100%", padding: 16, background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 16, color: "#fff", fontSize: 18, fontFamily: "monospace", letterSpacing: 2, outline: "none" }}
