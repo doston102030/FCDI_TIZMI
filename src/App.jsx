@@ -463,28 +463,30 @@ const btnStyle=(color,bg,full=false,sm=false)=>({
   boxShadow:`0 4px 12px ${color}33`
 });
 
-// ─── Dizayn konstantalar — Oq + Yashil ───────────────────────────────────────
+// ─── Dizayn konstantalar — Premium Dark Glassmorphism ─────────────────────────
 const C = {
-  bg:      "#f4faf5",
-  card:    "#ffffff",
-  card2:   "#f0f7f1",
-  border:  "rgba(22,163,74,0.15)",
-  blue:    "#16a34a",
-  blue2:   "#15803d",
-  gold:    "#ca8a04",
-  gold2:   "#d97706",
-  green:   "#16a34a",
-  red:     "#dc2626",
-  text:    "#0f2318",
-  muted:   "#6b8f72",
-  dim:     "#d1e8d4",
+  bg:      "#060b18",
+  card:    "rgba(15,20,40,0.75)",
+  card2:   "rgba(20,28,55,0.6)",
+  border:  "rgba(99,102,241,0.15)",
+  blue:    "#6366f1",
+  blue2:   "#818cf8",
+  gold:    "#f59e0b",
+  gold2:   "#fbbf24",
+  green:   "#10b981",
+  red:     "#ef4444",
+  text:    "#e2e8f0",
+  muted:   "#64748b",
+  dim:     "rgba(99,102,241,0.12)",
+  accent:  "#06b6d4",
 };
 
 const G = {
-  blue:  `linear-gradient(135deg,#15803d,#22c55e)`,
-  gold:  `linear-gradient(135deg,#ca8a04,#fbbf24)`,
-  green: `linear-gradient(135deg,#15803d,#22c55e)`,
-  card:  `linear-gradient(160deg,#ffffff,#f0f7f1)`,
+  blue:  `linear-gradient(135deg,#6366f1,#8b5cf6)`,
+  gold:  `linear-gradient(135deg,#f59e0b,#fbbf24)`,
+  green: `linear-gradient(135deg,#10b981,#06d6a0)`,
+  card:  `linear-gradient(160deg,rgba(15,20,40,0.8),rgba(20,28,55,0.5))`,
+  bg:    `linear-gradient(160deg,#060b18 0%,#0c1528 50%,#060b18 100%)`,
 };
 
 // ─── Login ────────────────────────────────────────────────────────────────────
@@ -496,16 +498,20 @@ function Login({ onLogin }) {
     else setErr("Login yoki parol noto'g'ri!");
   };
   const inp={
-    padding:"13px 16px", background:"#ffffff",
-    border:`1.5px solid rgba(22,163,74,0.25)`, borderRadius:12,
-    color:C.text, fontSize:15, outline:"none",
-    width:"100%", boxSizing:"border-box", fontFamily:"inherit",
-    transition:"border .2s", boxShadow:"0 1px 3px rgba(0,0,0,0.06)",
+    padding:"14px 18px", background:"rgba(15,20,40,0.6)",
+    border:`1.5px solid rgba(99,102,241,0.2)`, borderRadius:12,
+    color:"#e2e8f0", fontSize:15, outline:"none",
+    width:"100%", boxSizing:"border-box", fontFamily:"'Inter',system-ui,sans-serif",
+    transition:"all .3s", backdropFilter:"blur(8px)",
   };
   return (
-    <div style={{minHeight:"100vh",background:"linear-gradient(160deg,#f0faf2 0%,#e8f5eb 50%,#f0faf2 100%)",
+    <div style={{minHeight:"100vh",background:G.bg,
       display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",
-      padding:"24px 20px",fontFamily:"'Segoe UI',system-ui,sans-serif"}}>
+      padding:"24px 20px",fontFamily:"'Inter',system-ui,sans-serif",position:"relative",overflow:"hidden"}}>
+
+      {/* Background glow orbs */}
+      <div style={{position:"absolute",width:400,height:400,background:"radial-gradient(circle,rgba(99,102,241,0.15),transparent 70%)",top:"-10%",right:"-10%",borderRadius:"50%",pointerEvents:"none"}}/>
+      <div style={{position:"absolute",width:350,height:350,background:"radial-gradient(circle,rgba(6,182,212,0.1),transparent 70%)",bottom:"-5%",left:"-10%",borderRadius:"50%",pointerEvents:"none"}}/>
 
       <style>{`
         @keyframes fadeUp{from{opacity:0;transform:translateY(28px)}to{opacity:1;transform:none}}
@@ -513,62 +519,61 @@ function Login({ onLogin }) {
         @keyframes spin{to{transform:rotate(360deg)}}
         @keyframes scanLine{0%{top:6%}50%{top:84%}100%{top:6%}}
         @keyframes popIn{0%{transform:scale(.4);opacity:0}70%{transform:scale(1.08)}100%{transform:scale(1);opacity:1}}
-        input::placeholder{color:#9ab89e}
-        input:focus{border-color:#16a34a!important;box-shadow:0 0 0 3px rgba(22,163,74,0.12)}
-        button:active{transform:scale(0.98)}
+        @keyframes shimmer{0%{background-position:-200% 0}100%{background-position:200% 0}}
+        input::placeholder{color:rgba(148,163,184,0.5)}
+        input:focus{border-color:#6366f1!important;box-shadow:0 0 0 3px rgba(99,102,241,0.15)!important}
+        button:active{transform:scale(0.97)}
       `}</style>
 
-      <div style={{width:"100%",maxWidth:370,animation:"fadeUp .6s ease"}}>
+      <div style={{width:"100%",maxWidth:400,animation:"fadeUp .6s ease",position:"relative",zIndex:1}}>
         {/* Gerb */}
-        <div style={{textAlign:"center",marginBottom:32}}>
-          <div style={{fontSize:52,marginBottom:14,filter:"drop-shadow(0 0 20px rgba(212,149,26,0.5))",
-            animation:"glow 3s ease-in-out infinite"}}>🏛️</div>
-          <div style={{color:C.gold2,fontSize:10,fontWeight:700,letterSpacing:3,
-            textTransform:"uppercase",marginBottom:6}}>O'zbekiston Respublikasi</div>
-          <h1 style={{color:C.text,fontSize:20,fontWeight:900,margin:"0 0 4px",letterSpacing:.5}}>
+        <div style={{textAlign:"center",marginBottom:36}}>
+          <div style={{width:72,height:72,background:"linear-gradient(135deg,rgba(99,102,241,0.2),rgba(6,182,212,0.2))",
+            borderRadius:20,display:"inline-flex",alignItems:"center",justifyContent:"center",
+            fontSize:36,marginBottom:16,border:"1px solid rgba(99,102,241,0.2)",
+            boxShadow:"0 0 40px rgba(99,102,241,0.2)",backdropFilter:"blur(12px)"}}>🏛️</div>
+          <div style={{color:C.gold2,fontSize:10,fontWeight:700,letterSpacing:4,
+            textTransform:"uppercase",marginBottom:8}}>O'zbekiston Respublikasi</div>
+          <h1 style={{color:"#fff",fontSize:22,fontWeight:900,margin:"0 0 6px",letterSpacing:.5}}>
             MFY Monitoring Tizimi
           </h1>
-          <div style={{color:C.muted,fontSize:12}}>Fuqarolarni ro'yxatga olish</div>
+          <div style={{color:C.muted,fontSize:13}}>Fuqarolarni ro'yxatga olish</div>
         </div>
 
         {/* Chiziq */}
-        <div style={{height:2,background:`linear-gradient(90deg,transparent,#16a34a,transparent)`,marginBottom:28,borderRadius:2}}/>
+        <div style={{height:1,background:`linear-gradient(90deg,transparent,rgba(99,102,241,0.4),rgba(6,182,212,0.4),transparent)`,marginBottom:32,borderRadius:2}}/>
 
         {/* Forma */}
-        <div style={{background:"#ffffff",borderRadius:20,padding:"28px 24px",
-          border:"1px solid rgba(22,163,74,0.15)",
-          boxShadow:"0 8px 40px rgba(22,163,74,0.10),0 2px 8px rgba(0,0,0,0.06)"}}>
-          <div style={{display:"flex",flexDirection:"column",gap:16}}>
+        <div style={{background:"rgba(15,20,40,0.7)",borderRadius:24,padding:"32px 28px",
+          border:"1px solid rgba(99,102,241,0.15)",backdropFilter:"blur(20px)",
+          boxShadow:"0 8px 40px rgba(0,0,0,0.4),0 0 80px rgba(99,102,241,0.05)"}}>
+          <div style={{display:"flex",flexDirection:"column",gap:18}}>
             <div>
-              <label style={{color:C.muted,fontSize:11,fontWeight:700,display:"block",
-                marginBottom:7,textTransform:"uppercase",letterSpacing:1.2}}>Foydalanuvchi nomi</label>
+              <label style={{color:C.muted,fontSize:11,fontWeight:600,display:"block",
+                marginBottom:8,textTransform:"uppercase",letterSpacing:1.5}}>Foydalanuvchi nomi</label>
               <input value={u} onChange={e=>{setU(e.target.value);setErr("");}}
-                placeholder="Loginni kiriting" style={inp}
-                onFocus={e=>e.target.style.borderColor=C.blue}
-                onBlur={e=>e.target.style.borderColor=C.border}/>
+                placeholder="Loginni kiriting" style={inp}/>
             </div>
             <div>
-              <label style={{color:C.muted,fontSize:11,fontWeight:700,display:"block",
-                marginBottom:7,textTransform:"uppercase",letterSpacing:1.2}}>Parol</label>
+              <label style={{color:C.muted,fontSize:11,fontWeight:600,display:"block",
+                marginBottom:8,textTransform:"uppercase",letterSpacing:1.5}}>Parol</label>
               <input type="password" value={p} onChange={e=>{setP(e.target.value);setErr("");}}
-                placeholder="••••••••" onKeyDown={e=>e.key==="Enter"&&go()} style={inp}
-                onFocus={e=>e.target.style.borderColor=C.blue}
-                onBlur={e=>e.target.style.borderColor=C.border}/>
+                placeholder="••••••••" onKeyDown={e=>e.key==="Enter"&&go()} style={inp}/>
             </div>
             {err&&(
               <div style={{display:"flex",alignItems:"center",gap:8,padding:"10px 14px",
-                background:"rgba(229,62,62,0.08)",borderRadius:10,
-                border:"1px solid rgba(229,62,62,0.2)"}}>
+                background:"rgba(239,68,68,0.1)",borderRadius:10,
+                border:"1px solid rgba(239,68,68,0.25)"}}>
                 <span style={{fontSize:14}}>⚠️</span>
-                <span style={{color:"#fc8181",fontSize:13}}>{err}</span>
+                <span style={{color:"#f87171",fontSize:13,fontWeight:500}}>{err}</span>
               </div>
             )}
             <button onClick={go} disabled={loading} style={{
-              marginTop:4,padding:14,background:loading?C.dim:G.blue,
+              marginTop:4,padding:15,background:loading?"rgba(99,102,241,0.2)":G.blue,
               color:"#fff",border:"none",borderRadius:12,fontWeight:700,
               fontSize:15,cursor:loading?"wait":"pointer",
-              boxShadow:loading?"none":"0 8px 24px rgba(26,108,245,0.35)",
-              transition:"all .2s",letterSpacing:.3}}>
+              boxShadow:loading?"none":"0 8px 28px rgba(99,102,241,0.35)",
+              transition:"all .3s",letterSpacing:.3}}>
               {loading
                 ? <span style={{display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
                     <span style={{width:16,height:16,border:"2px solid rgba(255,255,255,0.3)",
@@ -581,16 +586,16 @@ function Login({ onLogin }) {
         </div>
 
         {/* Demo */}
-        <div style={{marginTop:14,padding:"12px 16px",background:"rgba(22,163,74,0.05)",
-          borderRadius:12,border:"1px solid rgba(22,163,74,0.12)"}}>
-          <div style={{color:"#6b8f72",fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:1,marginBottom:6}}>
+        <div style={{marginTop:16,padding:"14px 18px",background:"rgba(15,20,40,0.5)",
+          borderRadius:14,border:"1px solid rgba(99,102,241,0.1)",backdropFilter:"blur(12px)"}}>
+          <div style={{color:C.muted,fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:1.5,marginBottom:8}}>
             Demo kirish
           </div>
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:4,fontSize:12}}>
-            <span style={{fontFamily:"monospace",color:"#4a7a52"}}>admin / admin123</span>
-            <span style={{color:"#ca8a04",fontWeight:700,fontSize:11}}>Boshliq</span>
-            <span style={{fontFamily:"monospace",color:"#4a7a52"}}>hodim1 / 1234</span>
-            <span style={{color:"#16a34a",fontWeight:700,fontSize:11}}>Hodim</span>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,fontSize:12}}>
+            <span style={{fontFamily:"'Inter',monospace",color:"rgba(148,163,184,0.8)"}}>admin / admin123</span>
+            <span style={{color:C.gold2,fontWeight:700,fontSize:11}}>Boshliq</span>
+            <span style={{fontFamily:"'Inter',monospace",color:"rgba(148,163,184,0.8)"}}>hodim1 / 1234</span>
+            <span style={{color:"#818cf8",fontWeight:700,fontSize:11}}>Hodim</span>
           </div>
         </div>
       </div>
@@ -598,38 +603,34 @@ function Login({ onLogin }) {
   );
 }
 
-// ─── Hodim ────────────────────────────────────────────────────────────────────
-function Hodim({ user, records, setRecords, onLogout }) {
-  const [step,setStep]=useState("mfy");
-  const [mfy,setMfy]=useState(null);
-  const [face,setFace]=useState(null);
-  const [passport,setPassport]=useState(null);
-  const [name,setName]=useState("");
-  const [jshshir,setJshshir]=useState("");
-  const [coords,setCoords]=useState(null);
-  const [sending,setSending]=useState(false);
-  const [search,setSearch]=useState("");
-  const [toast,setToast]=useState(null);
-  const [success,setSuccess]=useState(null);
+// ─── Hodim (iPhone Style App) ──────────────────────────────────────────────────
+function Hodim({ user, records, onLogout }) {
+  const [tab, setTab] = useState("home"); // home, scan, history
+  const [mfy, setMfy] = useState(null);
+  const [face, setFace] = useState(null);
+  const [passport, setPassport] = useState(null);
+  const [name, setName] = useState("");
+  const [jshshir, setJshshir] = useState("");
+  const [coords, setCoords] = useState(null);
+  const [sending, setSending] = useState(false);
+  const [search, setSearch] = useState("");
+  const [toast, setToast] = useState(null);
+  const [success, setSuccess] = useState(null);
 
-  useEffect(()=>{
+  useEffect(() => {
     navigator.geolocation?.getCurrentPosition(
-      p=>setCoords({lat:p.coords.latitude.toFixed(6),lng:p.coords.longitude.toFixed(6)}),
-      ()=>setCoords({lat:"40.6367",lng:"71.5567"})
+      p => setCoords({ lat: p.coords.latitude.toFixed(6), lng: p.coords.longitude.toFixed(6) }),
+      () => setCoords({ lat: "40.6367", lng: "71.5567" })
     );
-  },[]);
+  }, []);
 
-  const myToday=records.filter(r=>r.hodim===user.username&&fmtDate(new Date(r.timestamp))===todayStr()).length;
-  const show=(msg,type="ok")=>{ setToast({msg,type}); setTimeout(()=>setToast(null),3500); };
-
-  const onPassport=(j,fullName,photo)=>{
-    setJshshir(j); setPassport(photo);
-    if(fullName&&!name.trim()) setName(fullName);
-    show("✅ JShShIR aniqlandi!");
-  };
+  const show = (msg, type = "ok") => { setToast({ msg, type }); setTimeout(() => setToast(null), 3500); };
 
   const submit = async () => {
-    if(!face||!passport||!name.trim()||jshshir.length!==14){show("Barcha maydonlarni to'ldiring!","err");return;}
+    if (!mfy || !face || !passport || !name.trim() || jshshir.length !== 14) {
+      show("Barcha maydonlarni to'ldiring!", "err");
+      return;
+    }
     setSending(true);
     try {
       const rec = {
@@ -637,243 +638,213 @@ function Hodim({ user, records, setRecords, onLogout }) {
         fullName: name.trim(), jshshir, facePhoto: face, passportPhoto: passport,
         coords, timestamp: new Date().toISOString()
       };
-
-      // 1) Firebase ga saqlash
       await addRecord(rec);
-
-      // 2) Telegram ga yuborish
-      try {
-        await fetch("/api/telegram", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ record: rec, facePhoto: face, passportPhoto: passport }),
-        });
-      } catch {}
-
       setSuccess(rec);
-      setFace(null); setPassport(null); setName(""); setJshshir(""); setStep("mfy");
+      setFace(null); setPassport(null); setName(""); setJshshir("");
+      setTab("home");
     } catch (e) {
-      show("Xatolik! Internet aloqasini tekshiring.", "err");
+      show("Xatolik! Internetni tekshiring.", "err");
     }
     setSending(false);
   };
 
-  const steps=[{ok:!!name.trim(),l:"FIO"},{ok:!!face,l:"Yuz"},{ok:!!passport,l:"Pasport"},{ok:jshshir.length===14,l:"JSHSHIR"}];
-  const allOk=steps.every(s=>s.ok);
-  const filtered=MFY_LIST.filter(m=>m.name.toLowerCase().includes(search.toLowerCase()));
+  const myRecords = records.filter(r => r.hodim === user.username);
+  const todayCount = myRecords.filter(r => fmtDate(new Date(r.timestamp)) === todayStr()).length;
 
-  const srch={width:"100%",padding:"11px 14px 11px 40px",
-    background:"#ffffff",border:`1px solid ${C.border}`,
-    borderRadius:12,color:C.text,fontSize:14,outline:"none",boxSizing:"border-box",
-    fontFamily:"inherit"};
-
-  return (
-    <div style={{minHeight:"100vh",background:C.bg,fontFamily:"'Segoe UI',system-ui,sans-serif",color:C.text}}>
-
-      {/* Toast */}
-      {toast&&<div style={{position:"fixed",top:14,left:"50%",transform:"translateX(-50%)",zIndex:999,
-        background:toast.type==="err"?`linear-gradient(135deg,#c0392b,#e53e3e)`:G.green,
-        color:"#fff",padding:"11px 22px",borderRadius:12,fontWeight:700,fontSize:14,
-        boxShadow:"0 8px 32px rgba(0,0,0,0.6)",maxWidth:"88vw",textAlign:"center",
-        animation:"fadeUp .3s",border:"1px solid rgba(255,255,255,0.1)"}}>
-        {toast.msg}
-      </div>}
-
-      {/* Muvaffaqiyat modal */}
-      {success&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.92)",zIndex:1000,
-        display:"flex",alignItems:"center",justifyContent:"center",padding:20,backdropFilter:"blur(16px)"}}>
-        <div style={{background:C.card2,borderRadius:24,padding:"36px 26px",maxWidth:360,width:"100%",
-          textAlign:"center",border:`1px solid rgba(13,185,109,0.25)`,animation:"fadeUp .4s",
-          boxShadow:"0 0 80px rgba(13,185,109,0.08)"}}>
-          <div style={{width:72,height:72,background:G.green,borderRadius:"50%",
-            display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 18px",
-            fontSize:32,boxShadow:"0 0 40px rgba(13,185,109,0.4)",animation:"popIn .5s"}}>✓</div>
-          <h2 style={{color:C.green,fontSize:20,fontWeight:900,margin:"0 0 6px",letterSpacing:.3}}>
-            Muvaffaqiyatli saqlandi
-          </h2>
-          <p style={{color:C.muted,fontSize:13,margin:"0 0 22px"}}>Ma'lumot tizimga va Telegramga yuborildi</p>
-          <div style={{background:"rgba(13,185,109,0.06)",borderRadius:14,padding:"14px 18px",
-            textAlign:"left",marginBottom:22,border:"1px solid rgba(13,185,109,0.12)"}}>
-            <div style={{fontWeight:800,fontSize:17,color:C.text}}>{success.fullName}</div>
-            <div style={{color:C.blue2,fontFamily:"monospace",fontSize:13,letterSpacing:2,marginTop:5}}>{success.jshshir}</div>
-            <div style={{color:C.muted,fontSize:12,marginTop:4}}>{success.mfy?.name}</div>
-          </div>
-          <button onClick={()=>setSuccess(null)} style={{width:"100%",padding:14,
-            background:G.green,color:"#fff",border:"none",borderRadius:12,
-            fontWeight:800,fontSize:15,cursor:"pointer",
-            boxShadow:"0 6px 20px rgba(13,185,109,0.3)"}}>
-            ➕ Keyingi fuqaro
-          </button>
+  // ── Tab: Home (MFY Selection) ──
+  const HomeView = () => (
+    <div style={{ padding: "20px 16px 100px", animation: "fadeUp .4s" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24 }}>
+        <div>
+          <h1 style={{ color: "#fff", fontSize: 24, fontWeight: 900 }}>Salom!</h1>
+          <p style={{ color: C.muted, fontSize: 14 }}>Mahalla monitoringini boshlang</p>
         </div>
-      </div>}
-
-      {/* Header */}
-      <div style={{background:"rgba(255,255,255,0.97)",backdropFilter:"blur(16px)",
-        padding:"12px 18px",display:"flex",justifyContent:"space-between",alignItems:"center",
-        borderBottom:`1px solid ${C.border}`,position:"sticky",top:0,zIndex:50}}>
-        <div style={{display:"flex",alignItems:"center",gap:10}}>
-          <div style={{width:36,height:36,background:G.blue,borderRadius:10,
-            display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,
-            boxShadow:`0 4px 12px rgba(26,108,245,0.4)`}}>🏛️</div>
-          <div>
-            <div style={{fontWeight:700,fontSize:14,color:C.text}}>{user.name}</div>
-            <div style={{color:C.blue2,fontSize:11,fontWeight:600}}>
-              Bugun: <b>{myToday}</b> ta  ·  Jami: <b>{records.filter(r=>r.hodim===user.username).length}</b>
-            </div>
-          </div>
-        </div>
-        <button onClick={onLogout} style={{padding:"6px 14px",background:"rgba(229,62,62,0.09)",
-          color:"#fc8181",border:"1px solid rgba(229,62,62,0.2)",borderRadius:9,
-          fontWeight:600,fontSize:12,cursor:"pointer"}}>Chiqish</button>
+        <div style={{ width: 44, height: 44, background: "rgba(255,255,255,0.05)", borderRadius: 14, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20 }}>👷</div>
       </div>
 
-      {/* ── MFY TANLASH ── */}
-      {step==="mfy"&&<div style={{padding:"18px 16px"}}>
-        <div style={{marginBottom:18}}>
-          <div style={{color:C.gold2,fontSize:10,fontWeight:700,letterSpacing:2,textTransform:"uppercase",marginBottom:4}}>
-            Qadam 1 / 2
-          </div>
-          <h2 style={{fontSize:20,fontWeight:900,margin:0,color:C.text}}>Mahalla tanlang</h2>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 28 }}>
+        <div style={{ background: "rgba(99,102,241,0.1)", border: "1px solid rgba(99,102,241,0.2)", padding: 16, borderRadius: 20 }}>
+          <div style={{ fontSize: 12, color: C.blue2, fontWeight: 700, textTransform: "uppercase", marginBottom: 4 }}>Bugun</div>
+          <div style={{ fontSize: 28, fontWeight: 900, color: "#fff" }}>{todayCount}</div>
+        </div>
+        <div style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", padding: 16, borderRadius: 20 }}>
+          <div style={{ fontSize: 12, color: C.muted, fontWeight: 700, textTransform: "uppercase", marginBottom: 4 }}>Jami</div>
+          <div style={{ fontSize: 28, fontWeight: 900, color: "#fff" }}>{myRecords.length}</div>
+        </div>
+      </div>
+
+      <h2 style={{ color: "#fff", fontSize: 18, fontWeight: 800, marginBottom: 16 }}>Mahalla Tanlang</h2>
+      <div style={{ position: "relative", marginBottom: 16 }}>
+        <span style={{ position: "absolute", left: 14, top: 13, color: C.muted }}>🔍</span>
+        <input 
+          value={search} onChange={e => setSearch(e.target.value)}
+          placeholder="Qidirish..." 
+          style={{ width: "100%", padding: "12px 14px 12px 40px", background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 16, color: "#fff", outline: "none" }}
+        />
+      </div>
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        {MFY_LIST.filter(m => m.name.toLowerCase().includes(search.toLowerCase())).map(m => {
+          const count = myRecords.filter(r => r.mfy?.id === m.id).length;
+          const isSelected = mfy?.id === m.id;
+          return (
+            <button key={m.id} onClick={() => { setMfy(m); setTab("scan"); }} style={{
+              padding: "16px", background: isSelected ? "rgba(99,102,241,0.2)" : "rgba(255,255,255,0.03)",
+              border: isSelected ? "1px solid #6366f1" : "1px solid rgba(255,255,255,0.05)",
+              borderRadius: 18, color: "#fff", textAlign: "left", cursor: "pointer", transition: "all .2s",
+              display: "flex", justifyContent: "space-between", alignItems: "center"
+            }}>
+              <span style={{ fontWeight: 600 }}>{m.name}</span>
+              {count > 0 && <span style={{ fontSize: 11, background: "rgba(99,102,241,0.3)", padding: "2px 8px", borderRadius: 8, color: C.blue2 }}>{count} ta</span>}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+
+  // ── Tab: Scan (Form) ──
+  const ScanView = () => (
+    <div style={{ padding: "20px 16px 120px", animation: "fadeUp .4s" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24 }}>
+        <h1 style={{ color: "#fff", fontSize: 22, fontWeight: 900 }}>Yangi Yozuv</h1>
+        {mfy && <div style={{ fontSize: 12, background: "rgba(99,102,241,0.15)", padding: "4px 12px", borderRadius: 12, color: C.blue2, fontWeight: 700 }}>{mfy.name}</div>}
+      </div>
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
+        {/* Step 1: Face */}
+        <div style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.05)", padding: 16, borderRadius: 24 }}>
+          <label style={{ color: C.muted, fontSize: 11, fontWeight: 700, textTransform: "uppercase", display: "block", marginBottom: 12 }}>1. YUZ RASMI</label>
+          <Camera onCapture={setFace} />
         </div>
 
-        <div style={{position:"relative",marginBottom:12}}>
-          <span style={{position:"absolute",left:13,top:"50%",transform:"translateY(-50%)",color:C.muted,fontSize:15}}>⌕</span>
-          <input value={search} onChange={e=>setSearch(e.target.value)}
-            placeholder="MFY nomini qidirish..." style={srch}/>
+        {/* Step 2: Passport */}
+        <div style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.05)", padding: 16, borderRadius: 24 }}>
+          <label style={{ color: C.muted, fontSize: 11, fontWeight: 700, textTransform: "uppercase", display: "block", marginBottom: 12 }}>2. PASSPORT / ID SKANER</label>
+          {passport ? (
+            <div style={{ position: "relative" }}>
+              <img src={passport} style={{ width: "100%", borderRadius: 16, border: "2px solid #6366f1" }} alt="" />
+              <button onClick={() => { setPassport(null); setJshshir(""); }} style={{ marginTop: 8, width: "100%", padding: 10, background: "rgba(239,68,68,0.1)", border: "none", borderRadius: 12, color: "#f87171", fontWeight: 700 }}>🔄 Qayta olish</button>
+            </div>
+          ) : <PassportScanner onFound={(j, fn, p) => { setJshshir(j); setPassport(p); if (fn) setName(fn); }} />}
         </div>
 
-        <div style={{display:"flex",flexDirection:"column",gap:4,maxHeight:"68vh",overflowY:"auto",paddingRight:2}}>
-          {filtered.map(m=>{
-            const cnt=records.filter(r=>r.mfy?.id===m.id&&r.hodim===user.username).length;
-            return(
-              <button key={m.id} onClick={()=>{setMfy(m);setStep("capture");setSearch("");}}
-                style={{padding:"11px 14px",
-                  background:cnt>0?"rgba(26,108,245,0.08)":"#ffffff",
-                  border:cnt>0?`1px solid rgba(26,108,245,0.22)`:`1px solid ${C.border}`,
-                  borderRadius:11,color:C.text,fontWeight:500,fontSize:13,cursor:"pointer",
-                  textAlign:"left",display:"flex",justifyContent:"space-between",alignItems:"center",
-                  transition:"all .15s"}}>
-                <span>
-                  <span style={{color:C.dim,marginRight:8,fontSize:10,
-                    background:"rgba(14,90,200,0.12)",padding:"1px 6px",borderRadius:5}}>{m.id}</span>
-                  {m.name}
-                </span>
-                {cnt>0&&<span style={{background:"rgba(26,108,245,0.15)",color:C.blue2,
-                  padding:"2px 9px",borderRadius:8,fontSize:11,fontWeight:700,flexShrink:0}}>{cnt} ta</span>}
-              </button>
-            );
-          })}
-        </div>
-      </div>}
-
-      {/* ── MA'LUMOT KIRITISH ── */}
-      {step==="capture"&&<div style={{padding:"16px 16px 32px"}}>
-        <button onClick={()=>setStep("mfy")}
-          style={{background:"none",border:"none",color:C.blue2,fontWeight:600,
-            fontSize:13,cursor:"pointer",padding:"0 0 14px",display:"flex",alignItems:"center",gap:5}}>
-          ← Orqaga
-        </button>
-
-        {/* MFY badge */}
-        <div style={{background:`linear-gradient(135deg,rgba(26,95,204,0.12),rgba(26,108,245,0.06))`,
-          borderRadius:16,padding:"14px 16px",marginBottom:20,
-          border:`1px solid rgba(26,108,245,0.2)`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+        {/* Step 3: Name & JSHSHIR */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           <div>
-            <div style={{color:C.blue2,fontSize:9,fontWeight:700,textTransform:"uppercase",letterSpacing:1.5,marginBottom:3}}>
-              Tanlangan mahalla
-            </div>
-            <div style={{fontSize:15,fontWeight:800,color:C.text}}>{mfy?.name}</div>
+            <label style={{ color: C.muted, fontSize: 11, fontWeight: 700, textTransform: "uppercase", display: "block", marginBottom: 8 }}>F.I.SH</label>
+            <input 
+              value={name} onChange={e => setName(e.target.value)}
+              placeholder="To'liq ism" 
+              style={{ width: "100%", padding: 16, background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 16, color: "#fff", fontSize: 16, outline: "none" }}
+            />
           </div>
-          {coords&&<div style={{color:C.muted,fontSize:10,textAlign:"right"}}>
-            📍{coords.lat}<br/>{coords.lng}
-          </div>}
+          <div>
+            <label style={{ color: C.muted, fontSize: 11, fontWeight: 700, textTransform: "uppercase", display: "block", marginBottom: 8 }}>JSHSHIR (14 ta raqam)</label>
+            <input 
+              value={jshshir} onChange={e => setJshshir(e.target.value.replace(/\D/g, "").slice(0, 14))}
+              placeholder="50701..." 
+              style={{ width: "100%", padding: 16, background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 16, color: "#fff", fontSize: 18, fontFamily: "monospace", letterSpacing: 2, outline: "none" }}
+            />
+          </div>
         </div>
 
-        {/* Progress */}
-        <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:5,marginBottom:22}}>
-          {steps.map((s,i)=>(
-            <div key={i}>
-              <div style={{height:3,borderRadius:3,marginBottom:5,transition:"background .5s",
-                background:s.ok?C.green:C.dim}}/>
-              <div style={{fontSize:9,fontWeight:700,textTransform:"uppercase",letterSpacing:.8,
-                color:s.ok?C.green:C.muted}}>
-                {s.ok?"✓ ":""}{s.l}
-              </div>
+        <button 
+          onClick={submit} disabled={sending || !mfy || !face || !passport || !name || jshshir.length !== 14}
+          style={{
+            padding: 18, background: sending ? "rgba(99,102,241,0.5)" : G.blue, border: "none", borderRadius: 20,
+            color: "#fff", fontWeight: 800, fontSize: 16, cursor: "pointer", transition: "all .3s",
+            boxShadow: "0 10px 20px rgba(99,102,241,0.3)"
+          }}
+        >
+          {sending ? "Yuborilmoqda..." : "Yozuvni Saqlash"}
+        </button>
+      </div>
+    </div>
+  );
+
+  // ── Tab: History ──
+  const HistoryView = () => (
+    <div style={{ padding: "20px 16px 100px", animation: "fadeUp .4s" }}>
+      <h1 style={{ color: "#fff", fontSize: 22, fontWeight: 900, marginBottom: 20 }}>Yozuvlar Tarixi</h1>
+      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        {myRecords.length === 0 ? (
+          <div style={{ textAlign: "center", padding: "40px 0", color: C.muted }}>Hali yozuvlar yo'q</div>
+        ) : [...myRecords].reverse().map(r => (
+          <div key={r.id} style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.05)", padding: 14, borderRadius: 20, display: "flex", gap: 12, alignItems: "center" }}>
+            <img src={r.facePhoto} style={{ width: 50, height: 50, borderRadius: 14, objectFit: "cover" }} alt="" />
+            <div>
+              <div style={{ color: "#fff", fontWeight: 700, fontSize: 14 }}>{r.fullName}</div>
+              <div style={{ color: C.muted, fontSize: 11 }}>{r.mfy?.name} • {fmt(r.timestamp)}</div>
             </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+
+  return (
+    <div style={{ minHeight: "100vh", background: "#000", display: "flex", justifyContent: "center", fontFamily: "'Inter', sans-serif" }}>
+      <div style={{ width: "100%", maxWidth: 430, background: "#0a0a0a", minHeight: "100vh", position: "relative", overflow: "hidden" }}>
+        
+        {/* iOS style Status Bar Spacer */}
+        <div style={{ height: 44, width: "100%" }} />
+
+        {/* Content Area */}
+        <div style={{ height: "calc(100vh - 124px)", overflowY: "auto" }}>
+          {tab === "home" && <HomeView />}
+          {tab === "scan" && <ScanView />}
+          {tab === "history" && <HistoryView />}
+        </div>
+
+        {/* Success Overlay */}
+        {success && (
+          <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.9)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24, backdropFilter: "blur(20px)" }}>
+            <div style={{ textAlign: "center", animation: "popIn .5s ease" }}>
+              <div style={{ width: 80, height: 80, background: G.green, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 40, margin: "0 auto 24px", boxShadow: "0 0 40px rgba(16,185,129,0.4)" }}>✓</div>
+              <h2 style={{ color: "#fff", fontSize: 24, fontWeight: 900, marginBottom: 8 }}>Saqlandi!</h2>
+              <p style={{ color: C.muted, marginBottom: 32 }}>Ma'lumotlar bazaga yuborildi.</p>
+              <button onClick={() => setSuccess(null)} style={{ padding: "16px 40px", background: G.blue, border: "none", borderRadius: 16, color: "#fff", fontWeight: 700 }}>Davom Etish</button>
+            </div>
+          </div>
+        )}
+
+        {/* Toast */}
+        {toast && (
+          <div style={{ position: "fixed", top: 60, left: "50%", transform: "translateX(-50%)", zIndex: 2000, background: toast.type === "err" ? "#ef4444" : "#6366f1", color: "#fff", padding: "12px 24px", borderRadius: 50, fontWeight: 700, fontSize: 14, boxShadow: "0 10px 20px rgba(0,0,0,0.5)", animation: "fadeUp .3s" }}>
+            {toast.msg}
+          </div>
+        )}
+
+        {/* Bottom Tab Bar (iPhone Style) */}
+        <div style={{ 
+          position: "absolute", bottom: 0, left: 0, right: 0, height: 84, 
+          background: "rgba(20,20,20,0.85)", backdropFilter: "blur(20px)", 
+          borderTop: "0.5px solid rgba(255,255,255,0.1)",
+          display: "flex", justifyContent: "space-around", alignItems: "center", paddingBottom: 20
+        }}>
+          {[
+            { id: "home", icon: "🏠", label: "Asosiy" },
+            { id: "scan", icon: "📸", label: "Skaner" },
+            { id: "history", icon: "🕒", label: "Tarix" },
+            { id: "exit", icon: "🚪", label: "Chiqish" }
+          ].map(t => (
+            <button 
+              key={t.id} 
+              onClick={() => t.id === "exit" ? onLogout() : setTab(t.id)}
+              style={{ background: "none", border: "none", display: "flex", flexDirection: "column", alignItems: "center", gap: 4, cursor: "pointer", opacity: tab === t.id || t.id === "exit" ? 1 : 0.4, transition: "all .3s" }}
+            >
+              <span style={{ fontSize: 24 }}>{t.icon}</span>
+              <span style={{ fontSize: 10, fontWeight: 700, color: tab === t.id ? C.blue2 : "#fff", textTransform: "uppercase" }}>{t.label}</span>
+            </button>
           ))}
         </div>
 
-        <div style={{display:"flex",flexDirection:"column",gap:18}}>
-          {/* FIO */}
-          <div>
-            <label style={lbl}>F.I.O — To'liq ism sharif</label>
-            <input value={name} onChange={e=>setName(e.target.value)}
-              placeholder="Fuqaroning to'liq ismi" style={inputSt(!!name.trim())}/>
-          </div>
-
-          {/* Yuz */}
-          <div>
-            <label style={lbl}>Yuz rasmi {face&&<span style={{color:C.green}}>— saqlandi ✓</span>}</label>
-            <Camera onCapture={setFace}/>
-          </div>
-
-          {/* Skaner */}
-          <div>
-            <label style={lbl}>Hujjat skaneri {passport&&<span style={{color:C.green}}>— aniqlandi ✓</span>}</label>
-            <p style={{color:C.muted,fontSize:11,margin:"3px 0 10px"}}>
-              ID karta yoki zagranpassportni kameraga tuting
-            </p>
-            {passport?(
-              <div style={{position:"relative"}}>
-                <img src={passport} alt="" style={{width:"100%",borderRadius:13,border:`2px solid ${C.green}`}}/>
-                <div style={{position:"absolute",top:10,right:10,background:C.green,color:"#fff",
-                  borderRadius:20,padding:"4px 12px",fontSize:11,fontWeight:700}}>✓ Aniqlandi</div>
-                <button onClick={()=>{setPassport(null);setJshshir("");}}
-                  style={{marginTop:8,width:"100%",padding:10,background:"rgba(229,62,62,0.07)",
-                    color:"#fc8181",border:"1px solid rgba(229,62,62,0.2)",borderRadius:10,
-                    fontWeight:600,fontSize:13,cursor:"pointer"}}>🔄 Qayta skanerlash</button>
-              </div>
-            ):(<PassportScanner onFound={onPassport}/>)}
-          </div>
-
-          {/* JSHSHIR */}
-          <div>
-            <label style={lbl}>
-              JShShIR — 14 ta raqam
-              {jshshir.length===14&&<span style={{color:C.green,marginLeft:8,fontWeight:700}}>✓ To'g'ri</span>}
-            </label>
-            <input type="tel" inputMode="numeric" pattern="[0-9]*"
-              value={jshshir}
-              onChange={e=>{ const v=e.target.value.replace(/\D/g,""); if(v.length<=14) setJshshir(v); }}
-              placeholder="50701065180016" maxLength={14}
-              style={{...inputSt(jshshir.length===14),fontSize:19,letterSpacing:3,fontFamily:"monospace",fontWeight:700}}/>
-            {jshshir&&jshshir.length<14&&(
-              <div style={{display:"flex",alignItems:"center",gap:6,marginTop:6}}>
-                <div style={{flex:1,height:3,background:C.dim,borderRadius:3,overflow:"hidden"}}>
-                  <div style={{width:`${jshshir.length/14*100}%`,height:"100%",background:C.gold2,transition:"width .2s",borderRadius:3}}/>
-                </div>
-                <span style={{color:C.gold2,fontSize:11,fontWeight:700,flexShrink:0}}>{jshshir.length}/14</span>
-              </div>
-            )}
-          </div>
-
-          {/* Yuborish */}
-          <button onClick={submit} disabled={sending||!allOk}
-            style={{padding:15,border:"none",borderRadius:13,fontWeight:800,fontSize:15,
-              cursor:!allOk||sending?"default":"pointer",color:"#fff",transition:"all .2s",
-              background:allOk&&!sending?G.green:"#f4faf5",
-              opacity:!allOk||sending?0.45:1,
-              boxShadow:allOk&&!sending?"0 8px 28px rgba(13,185,109,0.3)":"none"}}>
-            {sending
-              ? <span style={{display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
-                  <span style={{width:16,height:16,border:"2px solid rgba(255,255,255,0.3)",borderTopColor:"#fff",
-                    borderRadius:"50%",animation:"spin .7s linear infinite",display:"inline-block"}}/>
-                  Saqlanmoqda...
-                </span>
-              : "✓  Ma'lumotni yuborish"}
-          </button>
-        </div>
-      </div>}
+      </div>
+      <style>{`
+        @keyframes fadeUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes popIn { 0% { transform: scale(0.5); opacity: 0; } 70% { transform: scale(1.1); } 100% { transform: scale(1); opacity: 1; } }
+      `}</style>
     </div>
   );
 }
@@ -882,11 +853,11 @@ const lbl={color:C.muted,fontSize:11,fontWeight:700,display:"block",marginBottom
   textTransform:"uppercase",letterSpacing:1.1};
 const inputSt=ok=>({
   width:"100%",padding:"13px 16px",
-  background:ok?"rgba(22,163,74,0.06)":"#ffffff",
-  border:`1.5px solid ${ok?"rgba(22,163,74,0.4)":"rgba(22,163,74,0.2)"}`,
+  background:ok?"rgba(99,102,241,0.08)":"rgba(15,20,40,0.6)",
+  border:`1.5px solid ${ok?"rgba(99,102,241,0.35)":"rgba(99,102,241,0.15)"}`,
   borderRadius:12,color:C.text,fontSize:15,outline:"none",
-  boxSizing:"border-box",fontFamily:"inherit",transition:"all .2s",
-  boxShadow:"0 1px 4px rgba(0,0,0,0.05)",
+  boxSizing:"border-box",fontFamily:"'Inter',system-ui,sans-serif",transition:"all .2s",
+  backdropFilter:"blur(8px)",
 });
 
 // ─── Boshliq ──────────────────────────────────────────────────────────────────
@@ -918,20 +889,20 @@ function Boshliq({ user, records, onLogout }) {
     a.download=`mfy_${todayStr().replace(/\./g,"-")}.csv`; a.click();
   };
 
-  const hdr={background:"rgba(255,255,255,0.97)",backdropFilter:"blur(16px)",
+  const hdr={background:"rgba(10,15,30,0.85)",backdropFilter:"blur(20px)",
     padding:"12px 16px",borderBottom:`1px solid ${C.border}`,position:"sticky",top:0,zIndex:50,
-    boxShadow:"0 2px 12px rgba(22,163,74,0.08)"};
-  const srch2={width:"100%",padding:"10px 14px 10px 38px",background:"#ffffff",
-    border:`1px solid rgba(22,163,74,0.22)`,borderRadius:11,color:C.text,fontSize:13,
-    outline:"none",boxSizing:"border-box",fontFamily:"inherit",
-    boxShadow:"0 1px 4px rgba(0,0,0,0.05)"};
+    boxShadow:"0 2px 12px rgba(0,0,0,0.3)"};
+  const srch2={width:"100%",padding:"10px 14px 10px 38px",background:"rgba(15,20,40,0.6)",
+    border:`1px solid rgba(99,102,241,0.2)`,borderRadius:11,color:C.text,fontSize:13,
+    outline:"none",boxSizing:"border-box",fontFamily:"'Inter',system-ui,sans-serif",
+    backdropFilter:"blur(8px)"};
   const chip=(on)=>({padding:"6px 14px",borderRadius:9,fontWeight:700,
     fontSize:11,cursor:"pointer",letterSpacing:.3,
-    background:on?G.blue:"#ffffff",color:on?"#fff":C.muted,
-    border:on?`1px solid transparent`:`1px solid rgba(22,163,74,0.2)`});
+    background:on?G.blue:"rgba(15,20,40,0.6)",color:on?"#fff":C.muted,
+    border:on?`1px solid transparent`:`1px solid rgba(99,102,241,0.2)`});
 
   if(detail) return (
-    <div style={{minHeight:"100vh",background:C.bg,fontFamily:"'Segoe UI',system-ui,sans-serif",color:C.text}}>
+    <div style={{minHeight:"100vh",background:G.bg,fontFamily:"'Inter',system-ui,sans-serif",color:C.text}}>
       <div style={{...hdr,display:"flex",alignItems:"center",gap:12}}>
         <button onClick={()=>setDetail(null)}
           style={{background:"none",border:"none",color:C.blue2,fontWeight:700,fontSize:14,cursor:"pointer",padding:0}}>
@@ -944,14 +915,14 @@ function Boshliq({ user, records, onLogout }) {
         <div style={{background:G.card,borderRadius:18,padding:"18px 16px",border:`1px solid ${C.border}`}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:14,gap:8,flexWrap:"wrap"}}>
             <div>
-              <div style={{fontWeight:900,fontSize:19,color:C.text}}>{detail.fullName}</div>
+              <div style={{fontWeight:900,fontSize:19,color:"#fff"}}>{detail.fullName}</div>
               <div style={{color:C.blue2,fontFamily:"monospace",fontSize:14,letterSpacing:2,marginTop:5,
-                background:"rgba(26,108,245,0.1)",padding:"3px 10px",borderRadius:8,display:"inline-block"}}>
+                background:"rgba(99,102,241,0.12)",padding:"3px 10px",borderRadius:8,display:"inline-block"}}>
                 {detail.jshshir}
               </div>
             </div>
-            <span style={{background:"rgba(212,149,26,0.12)",color:C.gold2,padding:"5px 12px",
-              borderRadius:10,fontSize:11,fontWeight:700,border:`1px solid rgba(212,149,26,0.2)`,flexShrink:0}}>
+            <span style={{background:"rgba(245,158,11,0.12)",color:C.gold2,padding:"5px 12px",
+              borderRadius:10,fontSize:11,fontWeight:700,border:`1px solid rgba(245,158,11,0.25)`,flexShrink:0}}>
               {detail.mfy?.name}
             </span>
           </div>
@@ -959,9 +930,9 @@ function Boshliq({ user, records, onLogout }) {
             {[["📅",fmtDate(new Date(detail.timestamp))],["🕐",fmt(detail.timestamp)],
               ["👤",detail.hodimName],["📍",`${detail.coords?.lat?.slice(0,8)}, ${detail.coords?.lng?.slice(0,8)}`]
             ].map(([ic,v],k)=>(
-              <div key={k} style={{padding:"8px 11px",background:"#f4faf5",
+              <div key={k} style={{padding:"8px 11px",background:"rgba(15,20,40,0.5)",
                 borderRadius:9,fontSize:11,color:C.muted,border:`1px solid ${C.border}`}}>
-                {ic} <span style={{color:C.text}}>{v}</span>
+                {ic} <span style={{color:"#fff"}}>{v}</span>
               </div>
             ))}
           </div>
@@ -994,20 +965,20 @@ function Boshliq({ user, records, onLogout }) {
         <div style={{display:"flex",alignItems:"center",gap:10}}>
           <div style={{width:34,height:34,background:G.gold,borderRadius:9,
             display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,
-            boxShadow:"0 4px 12px rgba(212,149,26,0.35)"}}>🏛️</div>
+            boxShadow:"0 4px 12px rgba(245,158,11,0.35)"}}>🏛️</div>
           <div>
-            <div style={{fontWeight:800,fontSize:13,color:C.text}}>Boshqaruv paneli</div>
+            <div style={{fontWeight:800,fontSize:13,color:"#fff"}}>Boshqaruv paneli</div>
             <div style={{color:C.gold2,fontSize:10,fontWeight:600}}>
               Jami: {records.length} · Bugun: {todayAll}
             </div>
           </div>
         </div>
         <div style={{display:"flex",gap:7}}>
-          <button onClick={exportCSV} style={{padding:"6px 12px",background:"rgba(13,185,109,0.08)",
-            color:C.green,border:`1px solid rgba(13,185,109,0.2)`,borderRadius:9,
+          <button onClick={exportCSV} style={{padding:"6px 12px",background:"rgba(99,102,241,0.1)",
+            color:C.blue2,border:`1px solid rgba(99,102,241,0.2)`,borderRadius:9,
             fontWeight:700,fontSize:11,cursor:"pointer"}}>⬇ Excel</button>
-          <button onClick={onLogout} style={{padding:"6px 12px",background:"rgba(229,62,62,0.08)",
-            color:"#fc8181",border:"1px solid rgba(229,62,62,0.2)",borderRadius:9,
+          <button onClick={onLogout} style={{padding:"6px 12px",background:"rgba(239,68,68,0.1)",
+            color:"#f87171",border:"1px solid rgba(239,68,68,0.2)",borderRadius:9,
             fontWeight:600,fontSize:11,cursor:"pointer"}}>Chiqish</button>
         </div>
       </div>
@@ -1015,9 +986,9 @@ function Boshliq({ user, records, onLogout }) {
       {/* Statistika */}
       <div style={{padding:"16px 16px 0",display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>
         {[
-          {icon:"📊",l:"Jami",v:records.length,c:C.blue2,bg:"rgba(26,108,245,0.08)"},
-          {icon:"📅",l:"Bugun",v:todayAll,c:C.green,bg:"rgba(13,185,109,0.08)"},
-          {icon:"🏘",l:"MFY",v:[...new Set(records.map(r=>r.mfy?.id))].filter(Boolean).length,c:C.gold2,bg:"rgba(212,149,26,0.08)"},
+          {icon:"📊",l:"Jami",v:records.length,c:C.blue2,bg:"rgba(99,102,241,0.1)"},
+          {icon:"📅",l:"Bugun",v:todayAll,c:C.green,bg:"rgba(16,185,129,0.1)"},
+          {icon:"🏘",l:"MFY",v:[...new Set(records.map(r=>r.mfy?.id))].filter(Boolean).length,c:C.gold2,bg:"rgba(245,158,11,0.1)"},
         ].map((s,i)=>(
           <div key={i} style={{background:s.bg,borderRadius:14,padding:"13px 10px",
             border:`1px solid ${s.c}22`,textAlign:"center"}}>
@@ -1041,19 +1012,19 @@ function Boshliq({ user, records, onLogout }) {
             return(
               <button key={un} onClick={()=>setHFilter(active?null:un)}
                 style={{padding:"11px 13px",
-                  background:active?"rgba(26,108,245,0.1)":G.card,
-                  border:active?`1px solid rgba(26,108,245,0.3)`:`1px solid ${C.border}`,
-                  borderRadius:12,cursor:"pointer",textAlign:"left",transition:"all .15s"}}>
+                  background:active?"rgba(99,102,241,0.12)":G.card,
+                  border:active?`1px solid rgba(99,102,241,0.3)`:`1px solid ${C.border}`,
+                  borderRadius:12,cursor:"pointer",textAlign:"left",transition:"all .15s",backdropFilter:"blur(8px)"}}>
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:7}}>
-                  <span style={{color:C.text,fontWeight:600,fontSize:13}}>{ud.name}</span>
+                  <span style={{color:"#fff",fontWeight:600,fontSize:13}}>{ud.name}</span>
                   <span style={{fontSize:11,color:C.muted}}>
-                    Bugun <b style={{color:C.green}}>{today}</b>  ·  Jami <b style={{color:C.blue2}}>{total}</b>
+                    Bugun <b style={{color:C.blue2}}>{today}</b>  ·  Jami <b style={{color:C.blue2}}>{total}</b>
                   </span>
                 </div>
-                <div style={{height:3,background:"rgba(14,90,200,0.1)",borderRadius:3,overflow:"hidden"}}>
+                <div style={{height:3,background:"rgba(99,102,241,0.1)",borderRadius:3,overflow:"hidden"}}>
                   <div style={{height:"100%",borderRadius:3,transition:"width .6s",
                     width:`${Math.round(today/max*100)}%`,
-                    background:today>0?"linear-gradient(90deg,#1a5fcc,#0db96d)":"transparent"}}/>
+                    background:today>0?"linear-gradient(90deg,#6366f1,#06b6d4)":"transparent"}}/>
                 </div>
               </button>
             );
@@ -1073,8 +1044,8 @@ function Boshliq({ user, records, onLogout }) {
             <button key={v} onClick={()=>setDateF(v)} style={chip(dateF===v)}>{l}</button>
           ))}
           {hFilter&&<button onClick={()=>setHFilter(null)}
-            style={{padding:"6px 11px",background:"rgba(229,62,62,0.08)",color:"#fc8181",
-              border:"1px solid rgba(229,62,62,0.2)",borderRadius:9,fontWeight:700,fontSize:11,cursor:"pointer"}}>
+            style={{padding:"6px 11px",background:"rgba(239,68,68,0.1)",color:"#f87171",
+              border:"1px solid rgba(239,68,68,0.2)",borderRadius:9,fontWeight:700,fontSize:11,cursor:"pointer"}}>
             ✕ {USERS[hFilter]?.name}
           </button>}
         </div>
@@ -1082,7 +1053,7 @@ function Boshliq({ user, records, onLogout }) {
 
       {/* Ro'yxat */}
       <div style={{padding:"10px 16px 36px"}}>
-        <div style={{color:C.dim,fontSize:10,fontWeight:700,textTransform:"uppercase",
+        <div style={{color:C.muted,fontSize:10,fontWeight:700,textTransform:"uppercase",
           letterSpacing:.8,marginBottom:8}}>Yozuvlar — {filtered.length} ta</div>
         {filtered.length===0?(
           <div style={{textAlign:"center",padding:48}}>
@@ -1096,16 +1067,16 @@ function Boshliq({ user, records, onLogout }) {
                 style={{padding:"11px 13px",background:G.card,
                   border:`1px solid ${C.border}`,borderRadius:13,
                   cursor:"pointer",textAlign:"left",display:"flex",gap:11,alignItems:"center",
-                  transition:"all .15s"}}>
+                  transition:"all .15s",backdropFilter:"blur(8px)"}}>
                 {r.facePhoto
                   ? <img src={r.facePhoto} alt="" style={{width:44,height:44,borderRadius:11,
                       objectFit:"cover",border:`1px solid ${C.border}`,flexShrink:0}}/>
-                  : <div style={{width:44,height:44,borderRadius:11,background:C.dim,
+                  : <div style={{width:44,height:44,borderRadius:11,background:"rgba(99,102,241,0.15)",
                       flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",
-                      fontSize:18}}>👤</div>
+                      fontSize:18,color:C.blue2}}>👤</div>
                 }
                 <div style={{flex:1,minWidth:0}}>
-                  <div style={{fontWeight:700,fontSize:13,color:C.text,
+                  <div style={{fontWeight:700,fontSize:13,color:"#fff",
                     overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.fullName}</div>
                   <div style={{color:C.blue2,fontFamily:"monospace",fontSize:11,
                     letterSpacing:1,marginTop:3}}>{r.jshshir}</div>
@@ -1114,7 +1085,7 @@ function Boshliq({ user, records, onLogout }) {
                     {r.mfy?.name} · {r.hodimName} · {fmt(r.timestamp)}
                   </div>
                 </div>
-                <span style={{color:C.dim,fontSize:16,flexShrink:0}}>›</span>
+                <span style={{color:C.muted,fontSize:16,flexShrink:0}}>›</span>
               </button>
             ))}
           </div>
@@ -1124,18 +1095,91 @@ function Boshliq({ user, records, onLogout }) {
   );
 }
 
+// ─── Landing Page ─────────────────────────────────────────────────────────────
+function Landing({ onSelect }) {
+  return (
+    <div style={{
+      minHeight: "100vh", background: G.bg, display: "flex", flexDirection: "column",
+      alignItems: "center", justifyContent: "center", padding: 24, textAlign: "center",
+      fontFamily: "'Inter', sans-serif"
+    }}>
+      <div style={{
+        width: 80, height: 80, background: G.blue, borderRadius: 24,
+        display: "flex", alignItems: "center", justifyContent: "center", fontSize: 40,
+        marginBottom: 24, boxShadow: "0 20px 40px rgba(99,102,241,0.3)", animation: "popIn .6s ease"
+      }}>🏛️</div>
+      
+      <h1 style={{ color: "#fff", fontSize: 28, fontWeight: 900, marginBottom: 8 }}>Monitoring</h1>
+      <p style={{ color: C.muted, fontSize: 15, marginBottom: 40 }}>O'zbekiston Respublikasi MFY Monitoring Tizimi</p>
+
+      <div style={{ width: "100%", maxWidth: 320, display: "flex", flexDirection: "column", gap: 16 }}>
+        <button onClick={() => onSelect("hodim")} style={{
+          padding: "18px", background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)",
+          borderRadius: 20, color: "#fff", fontSize: 16, fontWeight: 700, cursor: "pointer",
+          display: "flex", alignItems: "center", justifyContent: "space-between", transition: "all .3s"
+        }}>
+          <span style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <span style={{ fontSize: 24 }}>👷</span> Hodim Paneli
+          </span>
+          <span style={{ opacity: 0.5 }}>→</span>
+        </button>
+
+        <button onClick={() => onSelect("admin_login")} style={{
+          padding: "18px", background: G.blue, border: "none",
+          borderRadius: 20, color: "#fff", fontSize: 16, fontWeight: 700, cursor: "pointer",
+          display: "flex", alignItems: "center", justifyContent: "space-between",
+          boxShadow: "0 10px 20px rgba(99,102,241,0.2)"
+        }}>
+          <span style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <span style={{ fontSize: 24 }}>🔐</span> Admin Kirish
+          </span>
+          <span>→</span>
+        </button>
+      </div>
+
+      <div style={{ marginTop: "auto", paddingBottom: 20, color: C.muted, fontSize: 12, letterSpacing: 1 }}>
+        VERSION 2.0 • MOBILE OPTIMIZED
+      </div>
+    </div>
+  );
+}
+
 // ─── App ──────────────────────────────────────────────────────────────────────
 export default function App() {
-  const [user,setUser]=useState(null);
-  const [records,setRecords]=useState([]);
+  const [view, setView] = useState("landing"); // landing, hodim, admin_login, admin_dashboard
+  const [user, setUser] = useState(null);
+  const [records, setRecords] = useState([]);
 
   // Firebase real-time
-  useEffect(()=>{
+  useEffect(() => {
     const unsub = listenRecords(setRecords);
-    return ()=>unsub();
-  },[]);
+    return () => unsub();
+  }, []);
 
-  if(!user) return <Login onLogin={setUser}/>;
-  if(user.role==="hodim") return <Hodim user={user} records={records} setRecords={setRecords} onLogout={()=>setUser(null)}/>;
-  return <Boshliq user={user} records={records} onLogout={()=>setUser(null)}/>;
+  if (view === "landing") return <Landing onSelect={setView} />;
+  
+  if (view === "hodim") return (
+    <Hodim 
+      user={{ username: "mobil_hodim", name: "Mobil Hodim" }} 
+      records={records} 
+      setRecords={setRecords} 
+      onLogout={() => setView("landing")} 
+    />
+  );
+
+  if (view === "admin_login") return (
+    <div style={{ position: "relative" }}>
+      <button onClick={() => setView("landing")} style={{
+        position: "absolute", top: 20, left: 20, zIndex: 100, background: "none", border: "none",
+        color: C.muted, fontSize: 14, fontWeight: 600, cursor: "pointer"
+      }}>← Orqaga</button>
+      <Login onLogin={(u) => { setUser(u); setView("admin_dashboard"); }} />
+    </div>
+  );
+
+  if (view === "admin_dashboard") return (
+    <Boshliq user={user} records={records} onLogout={() => { setUser(null); setView("landing"); }} />
+  );
+
+  return <Landing onSelect={setView} />;
 }
